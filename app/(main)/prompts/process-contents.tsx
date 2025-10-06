@@ -18,6 +18,8 @@ import { ListaDeProdutos } from "@/components/slots/lista-produtos-client";
 import { PromptParaCopiar } from "./prompt-to-copy";
 import { buildFooterFromPieces } from "@/lib/utils/footer";
 import { nivelDeSigiloPermitido } from "@/lib/proc/sigilo";
+import { formatDateTime } from "@/lib/utils/date";
+import { buildRequests } from "@/lib/ai/build-requests";
 
 export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent, setPieceContent, apiKeyProvided, model, children }: { prompt: IAPrompt, dadosDoProcesso: DadosDoProcessoType, pieceContent: any, setPieceContent: (pieceContent: any) => void, apiKeyProvided: boolean, model?: string, children?: ReactNode }) {
     const [selectedPieces, setSelectedPieces] = useState<PecaType[] | null>(null)
@@ -63,7 +65,7 @@ export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent,
             if (cache[peca.id])
                 contents[peca.id] = cache[peca.id]
             else
-                loading[peca.id] = fetch(`/api/v1/process/${dadosDoProcesso.numeroDoProcesso}/piece/${peca.id}/content`)
+                loading[peca.id] = fetch(`/api/v1/process/${peca.numeroDoProcesso || dadosDoProcesso.numeroDoProcesso}/piece/${peca.id}/content`)
         }
         for (const id in loading) {
             setLoadingPiecesProgress(Object.keys(contents).length)
@@ -80,83 +82,12 @@ export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent,
         }
         setPieceContent(contents)
         setLoadingPiecesProgress(-1)
-        setRequests(buildRequests(contents))
+        setRequests(buildRequests(prompt, dadosDoProcesso.numeroDoProcesso, selectedPieces, contents))
     }
 
     const LoadingPieces = () => {
         if (loadingPiecesProgress === -1 || !selectedPieces || selectedPieces.length === 0) return null
         return <>Carregando Peças...<ProgressBar variant="primary" striped={true} now={loadingPiecesProgress / selectedPieces.length * 100} label={`${loadingPiecesProgress}/${selectedPieces.length}`} /></>
-    }
-
-    const buildRequests = (contents: { [key: number]: string }): GeneratedContent[] => {
-        const requestArray: GeneratedContent[] = []
-        const pecasComConteudo: TextoType[] = selectedPieces.map(peca => ({ id: peca.id, event: peca.numeroDoEvento, idOrigem: peca.idOrigem, label: peca.rotulo, descr: peca.descr, slug: slugify(peca.descr), texto: contents[peca.id], sigilo: peca.sigilo }))
-        let produtos: InfoDeProduto[] = []
-        // Internal seeded prompt: use map products
-        if (prompt.kind?.startsWith('^')) {
-            const key = prompt.kind.substring(1)
-            const def = TipoDeSinteseMap[key]
-            if (def) {
-                produtos = def.produtos.map(p => infoDeProduto(p))
-            }
-            // If products list is defined via TipoDeSinteseMap, append them (avoids double-adding chat if not desired later)
-            for (const ip of produtos) {
-                if (ip.produto === P.RESUMOS) {
-                    // Add resume for each piece
-                    for (const peca of pecasComConteudo) {
-                        const definition = getInternalPrompt(`resumo-${peca.slug}`)
-                        const data: PromptDataType = { textos: [peca] }
-                        requestArray.push({ documentCode: peca.id || null, documentDescr: peca.descr, documentLocation: peca.event, documentLink: `/api/v1/process/${dadosDoProcesso.numeroDoProcesso}/piece/${peca.id}/binary`, data, title: peca.descr, produto: ip.produto, promptSlug: definition.kind, internalPrompt: definition })
-                    }
-                    continue
-                }
-                const def = getInternalPrompt(ip.prompt)
-                if (!def) continue
-                const data: PromptDataType = { numeroDoProcesso: dadosDoProcesso.numeroDoProcesso, textos: pecasComConteudo }
-                requestArray.push({ documentCode: null, documentDescr: null, data, title: ip.titulo, produto: ip.produto, promptSlug: def.kind, internalPrompt: def })
-            }
-        } else {
-            if (prompt.content.summary === 'SIM') {
-                for (const peca of pecasComConteudo) {
-                    const definition = getInternalPrompt(`resumo-${peca.slug}`)
-                    const data: PromptDataType = {
-                        numeroDoProcesso: dadosDoProcesso.numeroDoProcesso,
-                        textos: [peca]
-                    }
-                    requestArray.push({ documentCode: peca.id || null, documentDescr: peca.descr, documentLocation: peca.event, documentLink: `/api/v1/process/${dadosDoProcesso.numeroDoProcesso}/piece/${peca.id}/binary`, data, title: peca.descr, produto: P.RESUMO_PECA, promptSlug: definition.kind, internalPrompt: definition })
-                }
-            }
-            const definition: PromptDefinitionType = {
-                kind: `prompt-${prompt.id}`,
-                prompt: prompt.content.prompt,
-                systemPrompt: prompt.content.system_prompt,
-                jsonSchema: prompt.content.json_schema,
-                format: prompt.content.format,
-                template: prompt.content.template,
-                cacheControl: true,
-            }
-            const req: GeneratedContent = {
-                documentCode: null,
-                documentDescr: null,
-                data: {
-                    numeroDoProcesso: dadosDoProcesso.numeroDoProcesso,
-                    textos: pecasComConteudo
-                },
-                produto: P.RESUMO,
-                promptSlug: slugify(prompt.name),
-                internalPrompt: definition,
-                title: prompt.name,
-                plugins: []
-            }
-            requestArray.push(req)
-
-            // Basic chat as last item
-            const definition2 = getInternalPrompt(`chat`)
-            const data: PromptDataType = { textos: pecasComConteudo }
-            requestArray.push({ documentCode: null, documentDescr: null, data, title: 'Chat', produto: P.CHAT, promptSlug: definition2.kind, internalPrompt: definition2 })
-        }
-
-        return requestArray
     }
 
     useEffect(() => {
@@ -214,13 +145,13 @@ export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent,
             {readyToStartAI && requests?.length > 0 && (
                 apiKeyProvided
                     ? <>
-                        <ListaDeProdutos dadosDoProcesso={dadosDoProcesso} requests={requests} />
+                        <ListaDeProdutos dadosDoProcesso={dadosDoProcesso} requests={requests} model={model} />
                         <Print numeroDoProcesso={dadosDoProcesso.numeroDoProcesso} />
                     </>
                     : <PromptParaCopiar dadosDoProcesso={dadosDoProcesso} requests={requests} />
             )}</>}
         <hr className="mt-5" />
         <p style={{ textAlign: 'center' }}>Este documento foi gerado pela Apoia, ferramenta de inteligência artificial desenvolvida exclusivamente para facilitar a triagem de acervo, e não substitui a elaboração de relatório específico em cada processo, a partir da consulta manual aos eventos dos autos. Textos gerados por inteligência artificial podem conter informações imprecisas ou incorretas.</p>
-        <p style={{ textAlign: 'center' }} dangerouslySetInnerHTML={{ __html: `O prompt ${prompt.name} (${prompt.id}) ${buildFooterFromPieces(model, (selectedPieces || []).map(p => ({ ...p, conteudo: pieceContent[p.id] })))?.toLowerCase()}` }} />
+        <p style={{ textAlign: 'center' }} dangerouslySetInnerHTML={{ __html: `O prompt ${prompt.name} (${prompt.id}), em ${formatDateTime(new Date().toISOString())}, ${buildFooterFromPieces(model, (selectedPieces || []).map(p => ({ ...p, conteudo: pieceContent[p.id] })))?.toLowerCase()}` }} />
     </div >
 }

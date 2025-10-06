@@ -5,7 +5,7 @@ import { getInternalPrompt } from "@/lib/ai/prompt"
 import { GeneratedContent } from "@/lib/ai/prompt-types"
 import { P } from "@/lib/proc/combinacoes"
 import { FormHelper } from "@/lib/ui/form-support"
-import { calcSha256 } from "@/lib/utils/hash"
+import { calcMd5 } from "@/lib/utils/hash"
 import { labelToName, maiusculasEMinusculas } from "@/lib/utils/utils"
 import { Button } from "react-bootstrap"
 
@@ -42,9 +42,8 @@ export const PedidosFundamentacoesEDispositivos = ({ pedidos, request, nextReque
         // const pedidos = [...Frm.get('pedidos')].filter(p => p.dispositivo).map(p => ({ ...p, fundamentacoes: [...p.fundamentacoes.filter(f => f.selecionada).map(f => f.texto)] }))
         // const proximoPrompt = Frm.get('pedidos').proximoPrompt || 'SENTENCA'
         const aPedidos = [...Frm.get('pedidos').pedidos].filter(p => p.dispositivo && p.dispositivo !== 'DESCONSIDERAR')
-        // console.log('pedidosAnalisados', pedidos)
-        const data = { ...request.data }
-        data.textos = [...request.data.textos, { slug: 'pedidos', descr: 'Pedidos', texto: JSON.stringify(aPedidos), sigilo: '0' }]
+    const data = { ...request.data }
+    data.textos = [...request.data.textos, { numeroDoProcesso: data?.numeroDoProcesso || '', slug: 'pedidos', descr: 'Pedidos', texto: JSON.stringify(aPedidos), sigilo: '0' }]
 
         const prompt = getInternalPrompt(nextRequest.produto === P.VOTO ? 'voto' : 'sentenca')
 
@@ -77,7 +76,7 @@ export const PedidosFundamentacoesEDispositivos = ({ pedidos, request, nextReque
                 </div>
             </div>
             <h2>{nextRequest.produto === P.VOTO ? 'Voto' : 'Sentença'}</h2>
-            <AiContent definition={prompt} data={data} key={`prompt: 'sentenca', data: ${calcSha256(data)}`} dossierCode={dossierCode} />
+            <AiContent definition={prompt} data={data} key={`prompt: 'sentenca', data: ${calcMd5(data)}`} dossierCode={dossierCode} />
         </>
     }
 

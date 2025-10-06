@@ -1,12 +1,13 @@
 import { fixSigiloDePecas, Interop, ObterPecaType } from './interop'
 import { DadosDoProcessoType, Instance, PecaType } from '../proc/process-types'
-import { parseYYYYMMDDHHMMSS } from '../utils/utils'
+import { parseYYYYMMDDHHMMSS, slugify } from '../utils/utils'
 import { assertNivelDeSigilo } from '../proc/sigilo'
 import { getCurrentUser } from '../user'
 import { envString } from '../utils/env'
 import { tua } from '../proc/tua'
 import { InteropProcessoType } from './interop-types'
 import { mapPdpjToSimplified, PdpjInput } from './pdpj-mapping'
+import { P, T } from '../proc/combinacoes'
 
 const mimeTypyFromTipo = (tipo: string): string => {
     switch (tipo) {
@@ -129,13 +130,12 @@ export class InteropPDPJ implements Interop {
         return processos
     }
 
-    public consultarProcesso = async (numeroDoProcesso: string, idClasseParaFiltrar?: number): Promise<DadosDoProcessoType[]> => {
+    public consultarProcesso = async (numeroDoProcesso: string, recursivo?: boolean): Promise<DadosDoProcessoType[]> => {
         let data: any = await this.consultarProcessoPdpj(numeroDoProcesso)
 
         const resp: DadosDoProcessoType[] = []
         for (const processo of data[0].tramitacoes) {
             const idClasse = processo?.classe?.[0]?.codigo
-            if (idClasseParaFiltrar && idClasse !== idClasseParaFiltrar) continue
             assertNivelDeSigilo('' + processo.nivelSigilo)
 
             const ajuizamento = new Date(processo.dataHoraAjuizamento)
@@ -144,8 +144,11 @@ export class InteropPDPJ implements Interop {
             const segmento = processo.tribunal.segmento
             const instancia = processo.instancia
             const materia = processo.natureza
-            const poloAtivo = processo.partes.filter(p => p.polo === 'ATIVO')
-            const representantesDePoloAtivo = poloAtivo.map(p => p.representantes).flat()
+            const partesPoloAtivo = processo.partes.filter(p => p.polo === 'ATIVO')
+            const partesPoloPassivo = processo.partes.filter(p => p.polo === 'PASSIVO')
+            const poloAtivo = `${partesPoloAtivo[0]?.nome}${partesPoloAtivo.length > 1 ? ` + ${partesPoloAtivo.length - 1}` : ''}` || ''
+            const poloPassivo = `${partesPoloPassivo[0]?.nome}${partesPoloPassivo.length > 1 ? ` + ${partesPoloPassivo.length - 1}` : ''}` || ''
+            const representantesDePoloAtivo = partesPoloAtivo.map(p => p.representantes).flat()
             const primeiraOabDePoloAtivo = representantesDePoloAtivo.find(r => r && r.oab && r.oab[0]?.numero)?.oab[0]
             const oabPoloAtivo = primeiraOabDePoloAtivo ? `${primeiraOabDePoloAtivo.numero}/${primeiraOabDePoloAtivo.uf}` : undefined
             // const primeiraOabDePoloAtivo = processo.partes.find(p => p.polo === 'ATIVO' && p.representantes?.length > 0 && p.representantes[0].oab?.numero)?.representantes[0].oab
@@ -176,6 +179,7 @@ export class InteropPDPJ implements Interop {
                 pecas.push({
                     id: doc.id,
                     idOrigem: doc.idOrigem,
+                    numeroDoProcesso,
                     numeroDoEvento: mov.sequencia,
                     descricaoDoEvento: mov.descricao,
                     descr: doc.tipo.nome.toUpperCase(),
@@ -191,19 +195,37 @@ export class InteropPDPJ implements Interop {
                 })
             }
             const classe = tua[codigoDaClasse]
-            resp.push({ numeroDoProcesso, ajuizamento, codigoDaClasse, classe, nomeOrgaoJulgador, pecas, segmento, instancia, materia, oabPoloAtivo })
+
+            // Se a classe for de agravo, renomeia a descrição da primeira "PETIÇÃO INICIAL" para "AGRAVO"
+            if (classe) {
+                if (slugify(classe).includes('agravo-de-instrumento')) {
+                    const idx = pecas.findIndex((p: PecaType) => slugify(p.descr || '').includes('peticao-inicial'))
+                    if (idx >= 0) pecas[idx].descr = T.AGRAVO_DE_INSTRUMENTO
+                } else if (slugify(classe).includes('agravo')) {
+                    const idx = pecas.findIndex((p: PecaType) => slugify(p.descr || '').includes('peticao-inicial'))
+                    if (idx >= 0) pecas[idx].descr = T.AGRAVO
+                }
+            }
+
+            resp.push({ numeroDoProcesso, ajuizamento, codigoDaClasse, classe, nomeOrgaoJulgador, pecas, segmento, instancia, materia, poloAtivo, poloPassivo, oabPoloAtivo })
 
             // Se o processo tem processos relacionados, vamos pegar o originario    
-            if (processo.processosRelacionados?.length && !idClasseParaFiltrar) {
+            if (processo.processosRelacionados?.length && !recursivo) {
                 const processoOriginario = processo.processosRelacionados.find((p: any) => p.tipoRelacao === 'ORIGINARIO' && p.numeroProcesso !== numeroDoProcesso)
                 if (processoOriginario) {
-                    const numeroDoProcessoOriginario = processoOriginario.numeroProcesso
+                    const numeroDoProcessoOriginario = processoOriginario.numeroProcesso?.replace(/\D/g, '')
                     const idClasseOriginario = processoOriginario.classe?.id
                     try {
-                        const originario = await this.consultarProcesso(numeroDoProcessoOriginario, idClasseOriginario)
-                        if (originario?.length) {
-                            const originarioProcesso = originario[0]
-                            resp.push({ ...originarioProcesso, classe: originarioProcesso.classe + ' (Originário)' })
+                        const originario = await this.consultarProcesso(numeroDoProcessoOriginario, true)
+                        // Tenta selecionar um processo originário da classe informada em processoOriginario.classe.id
+                        let originarioSelecionado: DadosDoProcessoType
+                        if (idClasseOriginario) {
+                            originarioSelecionado = originario.find(p => p.codigoDaClasse === idClasseOriginario)
+                        }
+                        if (!originarioSelecionado && originario.length) originarioSelecionado = originario[0]
+                        if (originarioSelecionado) {
+                            originarioSelecionado.classe = originarioSelecionado.classe ? `${originarioSelecionado.classe} (Originário)` : '(Originário)'
+                            resp.push(originarioSelecionado)
                         }
                     } catch (e) {
                         console.error(`Erro ao consultar processo originário ${numeroDoProcessoOriginario}, do processo principal ${numeroDoProcesso}: ${e.message}`)
@@ -218,48 +240,54 @@ export class InteropPDPJ implements Interop {
     }
 
     public obterPeca = async (numeroDoProcesso, idDaPeca, binary?: boolean): Promise<ObterPecaType> => {
-        const response = await fetch(
-            envString('DATALAKE_API_URL') + `/processos/${numeroDoProcesso}/documentos/${idDaPeca}/${binary ? 'binario' : 'texto'}`,
-            {
-                method: 'GET',
-                headers: {
-                    'Accept': '*',
-                    'Authorization': `Bearer ${this.accessToken}`,
-                    'User-Agent': 'curl'
-                },
-                next: { revalidate: 3600 } // Revalida a cada hora
-            }
-        );
-        const b = await response.arrayBuffer()
-        if (response.status !== 200) {
-            try {
-                const decoder = new TextDecoder('utf-8')
-                const texto = decoder.decode(b)
-                if (response.headers.get('Content-Type') === 'application/json') {
-                    const data = JSON.parse(texto)
-                    throw new Error(data.message)
+        try {
+            const response = await fetch(
+                envString('DATALAKE_API_URL') + `/processos/${numeroDoProcesso}/documentos/${idDaPeca}/${binary ? 'binario' : 'texto'}`,
+                {
+                    method: 'GET',
+                    headers: {
+                        'Accept': '*',
+                        'Authorization': `Bearer ${this.accessToken}`,
+                        'User-Agent': 'curl'
+                    },
+                    next: { revalidate: 3600 } // Revalida a cada hora
                 }
-            } catch (e) {
-                throw new Error(`Não foi possível obter o texto da peça no DataLake/Codex da PDPJ. (${e} - ${numeroDoProcesso}/${idDaPeca})`)
+            );
+            const b = await response.arrayBuffer()
+            if (response.status !== 200) {
+                try {
+                    const decoder = new TextDecoder('utf-8')
+                    const texto = decoder.decode(b)
+                    if (response.headers.get('Content-Type') === 'application/json') {
+                        const data = JSON.parse(texto)
+                        throw new Error(data.message)
+                    }
+                } catch (e) {
+                    throw new Error(`Não foi possível obter o texto da peça no DataLake/Codex da PDPJ. (${e} - ${numeroDoProcesso}/${idDaPeca})`)
+                }
             }
-        }
-        const contentType = response.headers.get('Content-Type')
-        if (contentType === 'text/html') {
-            const decoder = new TextDecoder('utf-8')
-            let texto = decoder.decode(b)
-            if (texto) {
-                texto = texto.replace(/encoding="ISO-8859-1"/g, 'encoding="UTF-8"')
-                texto = texto.replace(/<meta charset="ISO-8859-1"\/>/g, '')
+            const contentType = response.headers.get('Content-Type')
+            if (contentType === 'text/html') {
+                const decoder = new TextDecoder('utf-8')
+                let texto = decoder.decode(b)
+                if (texto) {
+                    texto = texto.replace(/encoding="ISO-8859-1"/g, 'encoding="UTF-8"')
+                    texto = texto.replace(/<meta charset="ISO-8859-1"\/>/g, '')
+                }
+
+                const encoder = new TextEncoder();
+                const buffer = encoder.encode(texto).buffer;
+                return { contentType, buffer: buffer as ArrayBuffer };
+
             }
-
-            const encoder = new TextEncoder();
-            const buffer = encoder.encode(texto).buffer;
-            return { contentType, buffer: buffer as ArrayBuffer };
-
+            const ab = b.slice(0, b.byteLength)
+            const resultado = { buffer: ab, contentType }
+            return resultado;
+        } catch (e) {
+            if (!binary)
+                return this.obterPeca(numeroDoProcesso, idDaPeca, true)
+            throw e
         }
-        const ab = b.slice(0, b.byteLength)
-        const resultado = { buffer: ab, contentType }
-        return resultado;
     }
 }
 

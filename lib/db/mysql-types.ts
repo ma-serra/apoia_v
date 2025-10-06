@@ -92,6 +92,7 @@ export enum IADocumentContentSource {
     VIDEO = 5,
     OCR_VAZIO = 6,
     OCR_ERRO = 7,
+    // AUDIO = 8,
 }
 
 export type IADocument = {
@@ -146,6 +147,7 @@ export type IAPromptToInsert = {
     model_id: number
     testset_id: number | null
     share?: string
+    created_by?: number | null
     content: {
         system_prompt?: string
         prompt: string | null
@@ -443,4 +445,58 @@ export type IALibraryExample = {
     content_markdown: string | null
     created_at: Date | null
     created_by: number | null
+}
+// New: Batch and Job types
+export type IABatch = {
+    id: number
+    name: string
+    created_by: number | null
+    tipo_de_sintese: string | null
+    prompt_base_id?: number | null
+    complete: boolean
+    paused: boolean
+    concurrency: number
+    created_at: Date | null
+    last_activity_at: Date | null
+}
+
+export type IABatchJob = {
+    id: number
+    batch_id: number
+    dossier_code: string
+    dossier_id: number | null
+    status: 'PENDING' | 'RUNNING' | 'READY' | 'ERROR'
+    error_msg: string | null
+    attempts: number
+    created_at: Date | null
+    started_at: Date | null
+    finished_at: Date | null
+    duration_ms: number | null
+    cost_sum: number | null
+}
+
+// New: Batch fix-index mapping
+export type IABatchIndexMap = {
+    id: number
+    batch_id: number
+    descr_from: string
+    descr_to: string
+    created_at: Date | null
+}
+
+export type IABatchSummary = {
+    id: number
+    name: string
+    tipo_de_sintese: string | null
+    prompt_base_id?: number | null
+    // Latest prompt resolved from prompt_base_id (JOIN ia_prompt ON base_id AND is_latest=1)
+    prompt_latest_id?: number | null
+    prompt_latest_name?: string | null
+    complete: boolean
+    paused: boolean
+    totals: { total: number, pending: number, running: number, ready: number, error: number }
+    spentCost: number
+    estimatedTotalCost: number
+    avgDurationMs: number | null
+    etaMs: number | null
 }

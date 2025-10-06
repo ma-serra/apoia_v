@@ -149,6 +149,7 @@ export const getPieceContentTool = (pUser: Promise<UserType>) => tool({
 
                 return {
                     id: pieceId,
+                    numeroDoProcesso: processNumber,
                     idOrigem: pieceId,
                     event,
                     label,

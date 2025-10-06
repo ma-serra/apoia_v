@@ -1,13 +1,14 @@
 import { Container } from 'react-bootstrap'
 import TestsetForm from '../../../testset-form'
 import { Dao } from '@/lib/db/mysql'
+import { PublicError } from '@/lib/utils/public-error';
 
 export default async function New(props: { params: Promise<{ kind: string, slug: string, id: number }> }) {
     const params = await props.params;
     const { kind, slug, id } = params
 
     const record = await Dao.retrieveTestsetById(id)
-    if (!record) throw new Error('Prompt not found')
+    if (!record) throw new PublicError('Prompt não encontrado')
     const models = await Dao.retrieveModels()
     const testsets = await Dao.retrieveOfficialTestsetsIdsAndNamesByKind(kind)
 

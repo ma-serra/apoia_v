@@ -1,10 +1,8 @@
 import fetcher from "@/lib/utils/fetcher"
-import { NextResponse } from "next/server"
-import { getCurrentUser } from "@/lib/user"
+import { NextResponse, NextRequest } from "next/server"
+import { assertApiUser } from "@/lib/user"
 import { CargaDeConteudoEnum, obterDadosDoProcesso2 } from "@/lib/proc/process"
-
-export const maxDuration = 60
-// export const runtime = 'edge'
+import { withErrorHandler } from "@/lib/utils/api-error"
 
 /**
  * @swagger
@@ -33,33 +31,22 @@ export const maxDuration = 60
  *           schema:
  *             type: object
  */
-export async function GET(
-  req: Request,
-  props: { params: Promise<{ number: string, piece: string }> }
+async function GET_HANDLER(
+  req: NextRequest,
+  props: { params: { number: string, piece: string } }
 ) {
-  const params = await props.params;
-  const pUser = getCurrentUser()
+  const { params } = props;
+  const pUser = assertApiUser()
   const user = await pUser
-  if (!user) return Response.json({ errormsg: 'Unauthorized' }, { status: 401 })
 
-  try {
-    const url = new URL(req.url)
-    const kind = url.searchParams.get('kind')
-    const obterConteudo = url.searchParams.get('selectedPiecesContent') === 'true'
-    // if (kind) {
-    //   const dadosDoProcesso = await obterDadosDoProcesso({
-    //     numeroDoProcesso: params.number, pUser, kind,
-    //     conteudoDasPecasSelecionadas: obterConteudo ? CargaDeConteudoEnum.SINCRONO : CargaDeConteudoEnum.NAO
-    //   })
-    //   return Response.json(dadosDoProcesso)
-    // }
-    const dadosDoProcesso = await obterDadosDoProcesso2({
-      numeroDoProcesso: params.number, pUser,
-      conteudoDasPecasSelecionadas: obterConteudo ? CargaDeConteudoEnum.SINCRONO : CargaDeConteudoEnum.NAO
-    })
-    return Response.json(dadosDoProcesso)
-  } catch (error) {
-    const message = fetcher.processError(error)
-    return NextResponse.json({ message: `${message}` }, { status: 405 });
-  }
+  const url = new URL(req.url)
+  const kind = url.searchParams.get('kind')
+  const obterConteudo = url.searchParams.get('selectedPiecesContent') === 'true'
+  const dadosDoProcesso = await obterDadosDoProcesso2({
+    numeroDoProcesso: params.number, pUser,
+    conteudoDasPecasSelecionadas: obterConteudo ? CargaDeConteudoEnum.SINCRONO : CargaDeConteudoEnum.NAO
+  })
+  return NextResponse.json(dadosDoProcesso)
 }
+
+export const GET = withErrorHandler(GET_HANDLER)

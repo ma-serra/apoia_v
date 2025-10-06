@@ -7,7 +7,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { DefaultChatTransport, UIMessage } from 'ai';
 import { useChat } from '@ai-sdk/react'
 import showdown from 'showdown'
-import { ReactElement, useEffect, useMemo, useRef, useState } from 'react';
+import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useChatAnalytics } from '@/lib/analytics/chatAnalytics'
 import TextareaAutosize from 'react-textarea-autosize'
 import { Modal, Button, Form } from 'react-bootstrap';
 import ErrorMessage from '../error-message';
@@ -17,6 +18,9 @@ const converter = new showdown.Converter({ tables: true })
 import { getAllSuggestions, resolveSuggestion } from '@/components/suggestions/registry'
 import type { SuggestionContext } from '@/components/suggestions/context'
 import { Suggestion } from '../suggestions/base';
+import { last } from 'lodash';
+import { reasoning } from '@/lib/ai/reasoning';
+import Reasoning from '../reasoning-control';
 
 function preprocessar(mensagem: UIMessage, role: string) {
     const texto = mensagem.parts.reduce((acc, part) => {
@@ -144,7 +148,7 @@ function convertToUIMessages(modelMsgs: ModelMessage[]): UIMessage[] {
 
 let loadingMessages = false
 
-export default function Chat(params: { definition: PromptDefinitionType, data: PromptDataType, footer?: ReactElement, withTools?: boolean }) {
+export default function Chat(params: { definition: PromptDefinitionType, data: PromptDataType, model: string, footer?: ReactElement, withTools?: boolean, setProcessNumber?: (number: string) => void }) {
     const [processNumber, setProcessNumber] = useState(params?.data?.numeroDoProcesso || '');
     const [input, setInput] = useState('')
     const [files, setFiles] = useState<FileList | undefined>(undefined)
@@ -156,13 +160,28 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
     const [activeModalInitial, setActiveModalInitial] = useState<any>(null)
     const [activeModalSubmitHandler, setActiveModalSubmitHandler] = useState<((values: any, ctx: SuggestionContext) => void) | null>(null)
     const [modalDrafts, setModalDrafts] = useState<Record<string, any>>({})
+    const [showReasoning, setShowReasoning] = useState(false)
 
+
+    const handleProcessNumberChange = (number: string) => {
+        setProcessNumber(number)
+        if (params.setProcessNumber) params.setProcessNumber(number)
+    }
 
     const { messages, setMessages, sendMessage, error, clearError } =
         useChat({
             transport: new DefaultChatTransport({ api: `/api/v1/chat${params.withTools ? '?withTools=true' : ''}` }),
             // messages: fetchedMessages,
         })
+
+    // Hook de analytics encapsula instrumentação (depois de obter messages & error)
+    const { createUserMessage } = useChatAnalytics({
+        kind: params.definition.kind,
+        model: params.model,
+        dossierCode: processNumber || undefined,
+        messages,
+        error,
+    })
 
     useEffect(() => {
         const load = async () => {
@@ -178,8 +197,9 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
             const modelMsgs = await res.json()
             setMessages(convertToUIMessages(modelMsgs))
         }
+        // Only load when definition.kind or data changes; setMessages is stable from hook
         load()
-    }, [])
+    }, [params.definition.kind, params.data, params?.data?.numeroDoProcesso, setMessages])
 
     const handleEditMessage = (idx: number) => {
         const message = messages[idx]
@@ -190,7 +210,7 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
         setFocusToChatInput()
     }
 
-    const setFocusToChatInput = () => {
+    const setFocusToChatInput = useCallback(() => {
         setTimeout(() => {
             const inputElement = document.getElementById('chat-input') as (HTMLInputElement | HTMLTextAreaElement);
             if (inputElement) {
@@ -199,7 +219,7 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
                 inputElement.setSelectionRange(length, length);
             }
         }, 200);
-    }
+    }, [])
 
     const handleSubmitAndSetFocus = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -251,7 +271,7 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
         }
         buildFileParts().then(fileParts => {
             if (clientError) return
-            const msg: UIMessage = { id: undefined, role: 'user', parts: [{ type: 'text', text: input }, ...fileParts] }
+            const msg = createUserMessage(input, fileParts)
             sendMessage(msg)
         })
         setInput('')
@@ -268,11 +288,11 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
         setModalDrafts({})
     }, [processNumber])
 
-    const sendPrompt = (text: string) => {
-        const msg: UIMessage = { id: undefined, role: 'user', parts: [{ type: 'text', text }] }
+    const sendPrompt = useCallback((text: string) => {
+        const msg = createUserMessage(text, [], { suggestion: true })
         sendMessage(msg)
         setFocusToChatInput()
-    }
+    }, [createUserMessage, sendMessage, setFocusToChatInput])
 
     const suggestionCtx: SuggestionContext = useMemo(() => ({
         processNumber,
@@ -280,7 +300,7 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
         alreadyLoadedProcessMetadata,
         messages,
         sendPrompt,
-    }), [processNumber, alreadyLoadedProcessMetadata, messages])
+    }), [processNumber, alreadyLoadedProcessMetadata, messages, sendPrompt])
     const runSuggestion = (id: string) => {
         setCurrentSuggestion(getAllSuggestions().find(s => s.id === id) || null)
         const result = resolveSuggestion(id, suggestionCtx)
@@ -294,7 +314,7 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
         setActiveModalSubmitHandler(() => result.onSubmit || null)
     }
 
-    console.log('Chat messages:', messages)
+    const currentReasoning = messages.length > 0 ? reasoning(messages[messages.length - 1]) : undefined
 
     return (
         <div className={messages.find(m => m.role === 'assistant') ? '' : 'd-print-none h-print'}>
@@ -326,19 +346,27 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
                             </div>
                             : m.role === 'assistant' &&
                             <div className="row justify-content-start me-5" key={m.id}>
-                                {m?.parts?.find((part) => part.type.startsWith('tool-')) && <div className="mb-1">
-                                    {m?.parts?.filter((part) => part.type.startsWith('tool-'))?.map((part, index) => (
-                                        <div key={index} className="mb-0">
-                                            <div className={`text-wrap mb-0 chat-tool`}>
-                                                {toolMessage(part)}
+                                {
+                                    currentReasoning && idx === messages.length - 1
+                                    && <Reasoning currentReasoning={currentReasoning} showReasoning={showReasoning} setShowReasoning={setShowReasoning} />
+                                }
+                                {
+                                    m?.parts?.find((part) => part.type.startsWith('tool-')) && <div className="mb-1">
+                                        {m?.parts?.filter((part) => part.type.startsWith('tool-'))?.map((part, index) => (
+                                            <div key={index} className="mb-0">
+                                                <div className={`text-wrap mb-0 chat-tool`}>
+                                                    {toolMessage(part)}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>}
-                                {hasText(m) &&
+                                        ))}
+                                    </div>
+                                }
+                                {
+                                    hasText(m) &&
                                     <div className={`col col-auto mb-0`}>
                                         <div className={`text-wrap mb-3 rounded chat-content chat-ai`} dangerouslySetInnerHTML={{ __html: preprocessar(m, m.role) }} />
-                                    </div>}
+                                    </div>
+                                }
                             </div>
                     ))}
 
@@ -359,7 +387,7 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
                         </div>
                     </div>}
 
-                    <div className="rowx">
+                    <div className="rowx h-print">
                         <div className="xcol xcol-12">
                             <form onSubmit={handleSubmitAndSetFocus} className="mt-auto">
                                 <div className="input-group">
@@ -447,7 +475,7 @@ export default function Chat(params: { definition: PromptDefinitionType, data: P
                         // Legacy fallback: send current suggestion with number
                         const numero = values?.processNumber?.trim()
                         if (numero) {
-                            setProcessNumber(numero)
+                            handleProcessNumberChange(numero)
                             // legacy currentSuggestion logic removed after refactor
                         }
                     }

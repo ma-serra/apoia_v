@@ -8,19 +8,19 @@ import { Dao } from '@/lib/db/mysql'
 import { slugify } from '@/lib/utils/utils'
 import { ATTEMPTS, buildTest, preprocessQuestion } from '../../../../../../lib/ai/test/test-config'
 import { getInternalPrompt, promptDefinitionFromDefinitionAndOptions } from '@/lib/ai/prompt'
-import { getCurrentUser } from '@/lib/user'
+import { assertApiUser, getCurrentUser } from '@/lib/user'
+import { UnauthorizedError, withErrorHandler } from '@/lib/utils/api-error'
+import { devLog, isDev } from '@/lib/utils/log'
 
 export const maxDuration = 60
 
 
-export async function GET(
-  req: Request,
+async function GET_HANDLER(
+  _req: Request,
   props: { params: Promise<{ testsetId: number, promptId: number, modelId: number }> }
 ) {
   const params = await props.params;
-  const user = await getCurrentUser()
-  if (!user) return Response.json({ errormsg: 'Unauthorized' }, { status: 401 })
-
+  const user = await assertApiUser()
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream<any>({
@@ -35,6 +35,8 @@ export async function GET(
   res.headers.set('Content-Type', 'application/json; charset=utf-8'); //'text/html; charset=utf-8');
   return res;
 }
+
+export const GET = withErrorHandler(GET_HANDLER as any)
 
 const execute = async (testsetId: number, promptId: number, modelId: number, controller) => {
   let test = await Dao.retrieveTestByTestsetIdPromptIdAndModelId(testsetId, promptId, modelId)
@@ -64,11 +66,11 @@ const execute = async (testsetId: number, promptId: number, modelId: number, con
 
   const progress: ProgressType = {
     set: (s: string, percent: number) => {
-      console.log(`Progress: ${s} (${percent}%)`)
+      devLog(`Progress: ${s} (${percent}%)`)
       yieldProgress(s, percent)
     },
     remove: () => {
-      console.log(`Progress: removed`)
+      devLog(`Progress: removed`)
     }
   }
 
@@ -93,8 +95,9 @@ const execute = async (testsetId: number, promptId: number, modelId: number, con
       }
       removeEmptyKeys(definition)
       const resultStream = await streamContent(definition, data)
-      const result = await streamString(`prompt-result-${attempt * stepMax + i * 2}`, resultStream, controller)
-      console.log(`Result: ${result}`)
+      const stream = resultStream.textStream ? await resultStream.textStream : resultStream.objectStream ? await resultStream.objectStream : resultStream.cached ? resultStream.cached : undefined
+      const result = await streamString(`prompt-result-${attempt * stepMax + i * 2}`, stream, controller)
+      devLog(`Result: ${result}`)
       promptResults.push(result)
 
       yieldProgress(`Teste ${i} - ${test.name} - Testando o Resultado`, 0)
@@ -110,8 +113,9 @@ const execute = async (testsetId: number, promptId: number, modelId: number, con
       const definition2 = promptDefinitionFromDefinitionAndOptions(getInternalPrompt('int-testar'), options2)
 
       const resultStream2 = await streamContent(definition2, data2)
-      const result2 = await streamString(`questions-result-${attempt * stepMax + i * 2 + 1}`, resultStream2, controller)
-      console.log(`Result2: ${result2}`)
+      const stream2 = resultStream2.textStream ? await resultStream2.textStream : resultStream2.objectStream ? await resultStream2.objectStream : resultStream2.cached ? resultStream2.cached : undefined
+      const result2 = await streamString(`questions-result-${attempt * stepMax + i * 2 + 1}`, stream2, controller)
+      devLog(`Result2: ${result2}`)
       questionsResults.push(JSON.parse(result2))
     }
   }
@@ -135,7 +139,7 @@ async function streamString(key: string, stream: StreamTextResult<ToolSet, any> 
   } else {
     text = ''
     for await (const textPart of stream.textStream) {
-      process.stdout.write(textPart)
+      if (isDev()) process.stdout.write(textPart)
       controller.enqueue(encodeJsonString(textPart))
       text += textPart
     }

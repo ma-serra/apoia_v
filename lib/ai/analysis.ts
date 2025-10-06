@@ -2,17 +2,17 @@ import { getInternalPrompt, getPiecesWithContent } from '@/lib/ai/prompt'
 import { GeneratedContent, PromptDataType, PromptDefinitionType, TextoType } from '@/lib/ai/prompt-types'
 import { CargaDeConteudoEnum, obterDadosDoProcesso } from '@/lib/proc/process'
 import { assertCurrentUser } from '@/lib/user'
-import { T, P, ProdutosValidos, Plugin, ProdutoCompleto, InfoDeProduto } from '@/lib/proc/combinacoes'
-import { slugify } from '@/lib/utils/utils'
-import { IAGenerated } from '@/lib/db/mysql-types'
+import { T, P, ProdutosValidos, Plugin, ProdutoCompleto, InfoDeProduto, PieceStrategy, selecionarPecasPorPadraoComFase } from '@/lib/proc/combinacoes'
+import { IAGenerated, IAPrompt } from '@/lib/db/mysql-types'
 import { Dao } from '@/lib/db/mysql'
 import { getTriagem, getNormas, getPalavrasChave } from '@/lib/fix'
 import { generateContent } from '@/lib/ai/generate'
 import { infoDeProduto } from '../proc/info-de-produto'
-import { envString } from '../utils/env'
-import { DadosDoProcessoType } from '../proc/process-types'
+import { DadosDoProcessoType, identificarSituacaoDaPeca } from '../proc/process-types'
 import { buildFooter } from '../utils/footer'
 import { clipPieces } from './clip-pieces'
+import { buildRequests } from './build-requests'
+import devLog from '../utils/log'
 
 export async function summarize(dossierNumber: string, pieceNumber: string): Promise<{ dossierData: any, generatedContent: GeneratedContent }> {
     const pUser = assertCurrentUser()
@@ -28,7 +28,7 @@ export async function summarize(dossierNumber: string, pieceNumber: string): Pro
 
     const definition: PromptDefinitionType = getInternalPrompt(`resumo-${peca.slug}`)
 
-    const data: PromptDataType = { textos: [{ descr: peca.descr, slug: peca.slug, pTexto: peca.pTexto, sigilo: peca.sigilo }] }
+    const data: PromptDataType = { textos: [{ numeroDoProcesso: peca.numeroDoProcesso, descr: peca.descr, slug: peca.slug, pTexto: peca.pTexto, sigilo: peca.sigilo }] }
     const infoDeProduto: InfoDeProduto = { produto: P.RESUMO_PECA, titulo: peca.descr, dados: [peca.descr as T], prompt: definition.kind, plugins: [] }
     const req: GeneratedContent = {
         documentCode: peca.id || null, documentDescr: peca.descr, data, title: peca.descr, produto: infoDeProduto.produto, promptSlug: definition.kind, internalPrompt: definition
@@ -43,7 +43,7 @@ export async function summarize(dossierNumber: string, pieceNumber: string): Pro
     return { dossierData: dadosDoProcesso, generatedContent: req }
 }
 
-export function buildRequests(dossierNumber: string, produtos: InfoDeProduto[], pecasComConteudo: TextoType[]): GeneratedContent[] {
+export function buildRequestsForAnalysis(dossierNumber: string, produtos: InfoDeProduto[], pecasComConteudo: TextoType[]): GeneratedContent[] {
     const requests: GeneratedContent[] = []
 
     // Add product IARequests
@@ -84,33 +84,94 @@ export function buildRequests(dossierNumber: string, produtos: InfoDeProduto[], 
     return requests
 }
 
-export async function analyze(batchName: string | undefined, dossierNumber: string, kind: string | undefined, complete: boolean): Promise<{ dossierData: any, generatedContent: GeneratedContent[] }> {
-    console.log('analyze', batchName, dossierNumber)
+export async function analyze(batchName: string | undefined, dossierNumber: string, kind: string | number | undefined, complete: boolean): Promise<{ dossierData: any, generatedContent: GeneratedContent[] }> {
+    devLog('analyze', batchName, dossierNumber)
     try {
         const pUser = assertCurrentUser()
 
-        // Obter peças
-        const pDadosDoProcesso = obterDadosDoProcesso({ numeroDoProcesso: dossierNumber, pUser, completo: complete, kind, conteudoDasPecasSelecionadas: CargaDeConteudoEnum.SINCRONO })
-        const dadosDoProcesso = await pDadosDoProcesso
+        // Obter peças (fase 1)
+        // Se kind for numérico (id de prompt no banco), carregamos dados do processo SEM conteúdo para podermos
+        // selecionar as peças conforme a estratégia definida no prompt do banco.
+        const isNumericKind = typeof kind === 'number' || (typeof kind === 'string' && /^\d+$/.test(kind))
+        const internalKind = isNumericKind ? undefined : (kind as any)
+
+        let dadosDoProcesso: DadosDoProcessoType = await obterDadosDoProcesso({ numeroDoProcesso: dossierNumber, pUser, completo: complete, kind: internalKind, conteudoDasPecasSelecionadas: (isNumericKind && !complete) ? CargaDeConteudoEnum.NAO : CargaDeConteudoEnum.SINCRONO })
         if (dadosDoProcesso.errorMsg) throw new Error(dadosDoProcesso.errorMsg)
         if (!dadosDoProcesso?.tipoDeSintese) throw new Error(`${dossierNumber}: Nenhum tipo de síntese válido`)
         const produtos = dadosDoProcesso?.produtos
+        let promptFromDB: IAPrompt | null = null
 
-        let pecasComConteudo = await getPiecesWithContent(dadosDoProcesso, dossierNumber, true)
+        // Seleção de peças baseada no prompt do banco
+        if (isNumericKind) {
+            const promptId = Number(kind)
 
-        if (complete) {
-            // Limita aos primeiros N documentos, para não ficar muito caro nos testes
-            if (envString('COMPLETE_ANALYSIS_LIMIT'))
-                pecasComConteudo = pecasComConteudo.slice(0, parseInt(envString('COMPLETE_ANALYSIS_LIMIT') as string))
+            // Obter prompt (e versão mais recente, se aplicável)
+            promptFromDB = await Dao.retrievePromptById(promptId)
+            if (promptFromDB?.base_id && !promptFromDB?.is_latest) {
+                promptFromDB = await Dao.retrieveLatestPromptByBaseId(promptFromDB.base_id)
+            }
+
+            // Se o prompt atuar sobre PROCESSO e tiver estratégia de peças, aplica seleção e recarrega conteúdo
+            const target = promptFromDB?.content?.target
+            const pieceStrategy = promptFromDB?.content?.piece_strategy
+            const pieceDescr = promptFromDB?.content?.piece_descr as string[] | undefined
+            if (!complete && target === 'PROCESSO' && (pieceStrategy)) {
+                const allPieces = (dadosDoProcesso as any).pecas || []
+                let selectedIds: string[] = []
+                if (pieceStrategy) {
+                    const key = pieceStrategy.toString().trim().toUpperCase().replace(/-/g, '_')
+                    const strategy = (PieceStrategy as any)[key]
+                    if (strategy?.pattern) {
+                        const selecao = selecionarPecasPorPadraoComFase(allPieces, strategy.pattern)
+                        if (selecao?.pecas?.length) selectedIds = selecao.pecas.map(p => p.id)
+                    } else if (key === 'TIPOS_ESPECIFICOS' && pieceDescr?.length) {
+                        const pieceDescrValues = pieceDescr.map(d => T[d])
+                        selectedIds = allPieces.filter(p => pieceDescrValues.includes(p.descr)).map(p => p.id)
+                    } else {
+                        throw new Error(`Estratégia de peça inválida: ${pieceStrategy}`)
+                    }
+                }
+
+                // Carrega novamente os dados do processo APENAS com as peças selecionadas e com conteúdo síncrono
+                const dadosComPecasSelecionados = await obterDadosDoProcesso({ numeroDoProcesso: dossierNumber, pUser, pieces: selectedIds, conteudoDasPecasSelecionadas: CargaDeConteudoEnum.SINCRONO })
+                if (dadosComPecasSelecionados.errorMsg) throw new Error(dadosComPecasSelecionados.errorMsg)
+                // Preserva metadados (tipoDeSintese, produtos) da primeira chamada e substitui as peças carregadas
+                dadosDoProcesso = { ...dadosDoProcesso, pecasSelecionadas: dadosComPecasSelecionados.pecasSelecionadas }
+            }
         }
 
-        // console.log('pecasComConteudo', pecasComConteudo)
+        let pecasComConteudo = await getPiecesWithContent(dadosDoProcesso, dossierNumber, true)
+      
+        if (pecasComConteudo.length === 0) throw new Error(`${dossierNumber}: Nenhuma peça com conteúdo`)
+            
+        if (!pecasComConteudo.find(p => !identificarSituacaoDaPeca(p.texto).problematica))
+            throw new Error(`${dossierNumber}: Todas as peças estão com problemas (sigilosas, inacessíveis, vazias ou parciais)`)
 
-        const requests: GeneratedContent[] = buildRequests(dossierNumber, produtos.filter(p => p !== P.CHAT).map(p => infoDeProduto(p)), pecasComConteudo)
+        let requests: GeneratedContent[]
+        if (isNumericKind) {
+            requests = buildRequests(promptFromDB, dossierNumber, dadosDoProcesso.pecasSelecionadas).filter(r => r && r.promptSlug !== 'chat')
+
+            // Acrescenta o Plugins conforme o conteúdo do prompt
+            for (const req of requests) {
+                if (!req.plugins) req.plugins = []
+                if (req.internalPrompt?.prompt?.includes('# Triagem')) {
+                    if (!req.plugins.includes(Plugin.TRIAGEM)) req.plugins.push(Plugin.TRIAGEM)
+                }
+                if (req.internalPrompt?.prompt?.includes('# Normas/Jurisprudência Invocadas')) {
+                    if (!req.plugins.includes(Plugin.NORMAS)) req.plugins.push(Plugin.NORMAS)
+                }
+                if (req.internalPrompt?.prompt?.includes('# Palavras-Chave')) {
+                    if (!req.plugins.includes(Plugin.PALAVRAS_CHAVE)) req.plugins.push(Plugin.PALAVRAS_CHAVE)
+                }
+            }
+        } else {
+            requests = buildRequestsForAnalysis(dossierNumber, produtos.filter(p => p !== P.CHAT).map(p => infoDeProduto(p)), pecasComConteudo)
+        }
+
 
         // Retrieve from cache or generate
         for (const req of requests) {
-            req.result = generateContent(getInternalPrompt(req.promptSlug), req.data)
+            req.result = generateContent(req.internalPrompt, req.data)
         }
 
         let model: string | undefined = undefined
@@ -161,6 +222,7 @@ async function storeBatchItem(systemId: number, batchName: string, dossierNumber
             switch (plugin) {
                 case Plugin.TRIAGEM: {
                     const triage = getTriagem(req.generated)
+                    if (!triage) throw new Error('Triagem não encontrada')
                     const enum_id = await Dao.assertIAEnumId(Plugin.TRIAGEM)
                     const enum_item_id = await Dao.assertIAEnumItemId(triage, enum_id)
                     await Dao.assertIABatchDossierEnumItemId(batch_dossier_id, enum_item_id)
@@ -174,6 +236,8 @@ async function storeBatchItem(systemId: number, batchName: string, dossierNumber
                             const enum_item_id = await Dao.assertIAEnumItemId(triage, enum_id)
                             await Dao.assertIABatchDossierEnumItemId(batch_dossier_id, enum_item_id)
                             break
+                        } else {
+                            throw new Error('Triagem não encontrada')
                         }
                     }
                 }

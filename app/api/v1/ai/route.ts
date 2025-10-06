@@ -5,8 +5,12 @@ import { PromptDefinitionType, PromptExecutionResultsType, PromptOptionsType } f
 import { getInternalPrompt, promptDefinitionFromDefinitionAndOptions } from '@/lib/ai/prompt'
 import { Dao } from '@/lib/db/mysql'
 import { IAPrompt } from '@/lib/db/mysql-types'
-import { getCurrentUser } from '@/lib/user'
+import { getCurrentUser, assertApiUser } from '@/lib/user'
 import { preprocessTemplate } from '@/lib/ai/template'
+import { StreamTextResult, ToolSet } from 'ai'
+import * as Sentry from '@sentry/nextjs'
+import { devLog } from '@/lib/utils/log'
+import { ApiError, UnauthorizedError, withErrorHandler } from '@/lib/utils/api-error'
 
 export const maxDuration = 60
 
@@ -125,13 +129,11 @@ async function getPromptDefinition(kind: string, promptSlug?: string, promptId?:
  *       405:
  *         description: Erro durante a execução do prompt ou comunicação com o provedor.
  */
-export async function POST(request: Request) {
-    try {
+async function POST_HANDLER(request: Request) {
         const { searchParams } = new URL(request.url)
         const messagesOnly = searchParams.get('messagesOnly') === 'true'
 
-        const user = await getCurrentUser()
-        if (!user) return Response.json({ errormsg: 'Unauthorized' }, { status: 401 })
+    const user = await assertApiUser()
 
         // Update user details
         const userFields = user.corporativo?.length ? {
@@ -146,9 +148,7 @@ export async function POST(request: Request) {
         } : undefined
         const user_id = await Dao.assertIAUserId(user.preferredUsername || user.name, userFields)
 
-        // const body = JSON.parse(JSON.stringify(request.body))
         const body = await request.json()
-        // console.log('body', JSON.stringify(body))
         const kind: string = body.kind
         const promptSlug: string | undefined = body.promptSlug
         let promptId: number | undefined = body.promptId
@@ -187,12 +187,22 @@ export async function POST(request: Request) {
             definitionWithOptions.prompt += '\n\n' + body.extra
 
         const executionResults: PromptExecutionResultsType = { messagesOnly }
-        const result = await streamContent(definitionWithOptions, data, executionResults, { dossierCode })
+        const ret = await streamContent(definitionWithOptions, data, executionResults, { dossierCode })
 
-        if (typeof result === 'string') {
-            return new Response(result, { status: 200 })
+        if (ret.messages && messagesOnly) {
+            return new Response(ret.messages, { status: 200 })
         }
-        if (result) {
+
+        if (ret.cached) {
+            return new Response(ret.cached, { status: 200 })
+        }
+
+        if (ret.textStream && searchParams.get('uiMessageStream') === 'true') {
+            return ((await ret.textStream) as StreamTextResult<ToolSet, any>).toUIMessageStreamResponse();
+        }
+
+        if (ret.textStream || ret.objectStream) {
+            const result = ret.textStream ? await ret.textStream : ret.objectStream ? await ret.objectStream : null
             const reader: ReadableStreamDefaultReader = (result as any).fullStream.getReader()
             const { value, done } = await reader.read()
             if (value?.type === 'error') {
@@ -231,12 +241,9 @@ export async function POST(request: Request) {
                     'Content-Type': definitionWithOptions.jsonSchema ? 'application/json' : 'text/plain; charset=utf-8',
                 },
             })
-        } else {
-            throw new Error('Invalid response')
         }
-    } catch (error) {
-        console.log('error', error)
-        const message = Fetcher.processError(error)
-        return NextResponse.json({ errormsg: `${message}` }, { status: 405 })
-    }
+
+        throw new ApiError('Invalid response', 500)
 }
+
+export const POST = withErrorHandler(POST_HANDLER as any)

@@ -17,28 +17,16 @@ import { selecionarPecasPorPadraoComFase, TipoDeSinteseMap } from '@/lib/proc/co
 import DiffViewer from './diff-viewer'
 import { useRouter } from 'next/navigation'
 import Chat from '@/components/slots/chat'
-import { calcSha256 } from '@/lib/utils/hash'
+import { calcMd5 } from '@/lib/utils/hash'
+import ProcessTextarea from '@/components/ProcessTextarea'
 
 type DadosDoProcessoAndControlType =
     DadosDoProcessoType & { missingDadosDoProcesso: boolean, missingPeticaoInicial: boolean }
-
-const preprocessInput = (value: string) => {
-    value = value.replaceAll(/(:.*?)$/gm, '')
-    value = value.replaceAll('\n\n', '\n').replaceAll('\n', ',').replaceAll(/[^\d,]/g, '').replaceAll(',', ', ')
-    return value
-}
-
-const extractProcessNumbers = (text: string): string => {
-    const regex = /\d{7}\s*-\s*\d{2}\s*\.\s*\d{4}\s*\.\s*\d{1}\s*\.\s*\d{2}\s*\.\s*\d{4}|\d{20}/g;
-    const matches = text.match(regex);
-    return matches ? matches.map(match => match.replace(/\D/g, '')).join(', ') : '';
-}
 
 const formatSimilarity = (value: number) => {
     if (isNaN(value)) return ''
     if (value === -1) return ''
     const formated = `${(value * 100).toFixed(1)}`
-    // console.log('value', value, 'formated', formated)
     if (formated === '100.0' && value < 1) return '99.9'
     return formated
 }
@@ -51,9 +39,10 @@ const fixOutrosNumerosDeProcessos = (outrosNumerosDeProcessos: string, numeroDoP
     return Array.from(numerosUnicosDeProcessos).join(', ')
 }
 
-export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?: string, hasApiKey: boolean }) {
+export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?: string, hasApiKey: boolean, model?: string }) {
     const NAVIGATE_TO_PROCESS_URL = params.NAVIGATE_TO_PROCESS_URL
     const hasApiKey = params.hasApiKey
+    const model = params.model
     const [outrosNumerosDeProcessos, setOutrosNumerosDeProcessos] = useState('')
     const [numeroDoProcesso, setNumeroDoProcesso] = useState('')
     const [hidden, setHidden] = useState(true)
@@ -101,42 +90,21 @@ export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?
         setHidden(true)
     }
 
-    const handlePaste = (event) => {
-        // Prevent the default paste behavior
-        event.preventDefault();
-
-        // console.log('event', event)
-
-        // Get the pasted text
-        const pastedText = event.clipboardData.getData("text");
-        // const pastedText = "renato"
-
-
-        // Preprocess the pasted text (example: trim and convert to uppercase)
-        const processedText = extractProcessNumbers(pastedText);
-        // console.log(processedText)
-
-        // Insert the processed text at the current cursor position
-        const { selectionStart, selectionEnd } = event.target;
-        const newValue =
-            outrosNumerosDeProcessos.substring(0, selectionStart) +
-            processedText +
-            outrosNumerosDeProcessos.substring(selectionEnd);
-
-        // Update the input value
-        setOutrosNumerosDeProcessos(newValue);
-    };
+    // paste handling is now encapsulated by ProcessTextarea
 
     const localizarAPeticaoInicial = (dadosDoProcesso: DadosDoProcessoType): PecaType => {
         return dadosDoProcesso.pecasSelecionadas?.find(p => slugify(p.descr) === 'peticao-inicial')
     }
 
+    interface ProcessoResponseType { arrayDeDadosDoProcesso?: DadosDoProcessoType[]; errorMsg?: string }
+
     const obterDadosDoProcessoEConteudoDaPeticaoInicial = async (numeroDoProcesso: string, procs: DadosDoProcessoAndControlType[], procsMap: { [key: string]: DadosDoProcessoAndControlType }): Promise<DadosDoProcessoAndControlType> => {
         let dadosDoProcesso: DadosDoProcessoAndControlType = procsMap[numeroDoProcesso]
         if (!dadosDoProcesso) {
-            const response = await fetcher.get(`/api/v1/process/${numeroDoProcesso}`)
-            if (response.arrayDeDadosDoProcesso && response.arrayDeDadosDoProcesso.length > 0) {
-                for (const dadosDoProc of response.arrayDeDadosDoProcesso) {
+            const response = await fetcher.get<ProcessoResponseType>(`/api/v1/process/${numeroDoProcesso}`)
+            const procJson = (response && typeof response === 'object' && 'arrayDeDadosDoProcesso' in response) ? response as ProcessoResponseType : undefined
+            if (procJson?.arrayDeDadosDoProcesso && procJson.arrayDeDadosDoProcesso.length > 0) {
+                for (const dadosDoProc of procJson.arrayDeDadosDoProcesso) {
                     const selecao = selecionarPecasPorPadraoComFase(dadosDoProc.pecas, TipoDeSinteseMap['LITIGANCIA_PREDATORIA'].padroes)
                     const pecasSelecionadas = selecao.pecas
                     const peticaoInicialPeca = pecasSelecionadas.find(peca => slugify(peca.descr) === 'peticao-inicial')
@@ -156,12 +124,16 @@ export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?
                 for (const peca of dadosDoProcesso.pecasSelecionadas) {
                     if (peca.conteudo) continue
                     try {
-                        const resp = await fetcher.get(`/api/v1/process/${numeroDoProcesso}/piece/${peca.id}/content`)
-                        if (resp.errormsg) {
-                            peca.errorMsg = resp.errormsg
-                            peca.conteudo = ''
-                        } else
-                            peca.conteudo = resp.content
+                        interface PecaContentResponse { errormsg?: string; content?: string }
+                        const resp = await fetcher.get<PecaContentResponse>(`/api/v1/process/${numeroDoProcesso}/piece/${peca.id}/content`)
+                        if (resp && typeof resp === 'object') {
+                            if ('errormsg' in resp && resp.errormsg) {
+                                peca.errorMsg = resp.errormsg
+                                peca.conteudo = ''
+                            } else if ('content' in resp && resp.content) {
+                                peca.conteudo = resp.content
+                            }
+                        }
                     } catch (error) {
                         peca.errorMsg = `Erro ao carregar conteúdo da peça ${peca.id} - ${error}`
                     }
@@ -169,15 +141,15 @@ export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?
                 procsMap[numeroDoProcesso] = dadosDoProcesso
                 setProcessosMap({ ...procsMap })
             }
-            if (response.errorMsg) {
-                dadosDoProcesso = { numeroDoProcesso, pecas: [], pecasSelecionadas: [], missingDadosDoProcesso: true, missingPeticaoInicial: true, errorMsg: response.errorMsg }
+            if (procJson?.errorMsg) {
+                dadosDoProcesso = { numeroDoProcesso, pecas: [], pecasSelecionadas: [], poloAtivo: '', poloPassivo: '', missingDadosDoProcesso: true, missingPeticaoInicial: true, errorMsg: procJson.errorMsg }
                 procsMap[numeroDoProcesso] = dadosDoProcesso
                 setProcessosMap({ ...procsMap })
             }
         }
 
         if (!dadosDoProcesso) {
-            procsMap[numeroDoProcesso] = { numeroDoProcesso, pecas: [], pecasSelecionadas: [], missingDadosDoProcesso: true, missingPeticaoInicial: true }
+            procsMap[numeroDoProcesso] = { numeroDoProcesso, pecas: [], pecasSelecionadas: [], poloAtivo: '', poloPassivo: '', missingDadosDoProcesso: true, missingPeticaoInicial: true }
             setProcessosMap({ ...procsMap })
             return procsMap[numeroDoProcesso]
         }
@@ -292,7 +264,6 @@ export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?
             const numerosUnicosDeProcessos = fixOutrosNumerosDeProcessos(outrosNumerosDeProcessos, numeroDoProcesso).split(',').map(n => n.trim())
             for (const numeroDoOutroProcesso of numerosUnicosDeProcessos) {
                 if (!numeroDoOutroProcesso) continue
-                // console.log('numeroDoOutroProcesso', numeroDoOutroProcesso)
                 setStatus(`Obtendo dados do processo ${numeroDoOutroProcesso} (${procs.length + 1}/${numerosUnicosDeProcessos.length})...`)
                 await carregarProcesso(dadosDoProcesso, numeroDoOutroProcesso, procs, procsMap, simMap)
             }
@@ -341,8 +312,11 @@ export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?
                 </div>
                 <div className="form-group"><label>Outros Números de Processos Suspeitos</label></div>
                 <div className="alert alert-secondary mb-1 p-0">
-                    <textarea className="form-control" value={outrosNumerosDeProcessos} onChange={(e) => outrosNumerosDeProcessosChanged(preprocessInput(e.target.value))}
-                        onPaste={handlePaste} />
+                    <ProcessTextarea
+                        className="form-control"
+                        value={outrosNumerosDeProcessos}
+                        onChange={(val) => outrosNumerosDeProcessosChanged(val)}
+                    />
                 </div>
                 {hidden && <>
                     <div className="text-body-tertiary">Informe o número do processo suspeito, a lista de outros processos a serem analisados e clique em &quot;Analisar&quot;.</div>
@@ -398,7 +372,7 @@ export default function AbusiveLitigationPage(params: { NAVIGATE_TO_PROCESS_URL?
                     data={{ textos }}
                     options={{ cacheControl: true }} config={promptConfig} dossierCode={undefined} />
 
-                <Chat definition={getInternalPrompt('chat')} data={{ textos }} key={calcSha256({ textos })} />
+                <Chat definition={getInternalPrompt('chat')} data={{ textos }} key={calcMd5({ textos })} model={model} />
             </>}
             <Toast onClose={() => setToast('')} show={!!toast} delay={3000} bg="danger" autohide key={toast} style={{ position: 'fixed', top: 10, right: 10 }}>
                 <Toast.Header>

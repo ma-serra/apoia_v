@@ -1,11 +1,12 @@
 import { generateAndStreamContent } from '@/lib/ai/generate'
 import { getModel } from '@/lib/ai/model-server'
 import { getTools } from '@/lib/ai/tools'
-import { anonymizeText } from '@/lib/anonym/anonym'
 import { Dao } from '@/lib/db/mysql'
-import { getCurrentUser } from '@/lib/user'
-import { envString } from '@/lib/utils/env'
+import { getCurrentUser, assertApiUser } from '@/lib/user'
 import { convertToModelMessages, StreamTextResult, ToolSet } from 'ai'
+import * as Sentry from '@sentry/nextjs'
+import devLog from '@/lib/utils/log'
+import { UnauthorizedError, withErrorHandler } from '@/lib/utils/api-error'
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 60
@@ -29,22 +30,17 @@ export const maxDuration = 60
  *       200:
  *         description: Resposta do assistente
  */
-export async function POST(req: Request) {
-    const pUser = getCurrentUser()
+async function POST_HANDLER(req: Request) {
+    const pUser = assertApiUser()
     const user = await pUser
-    if (!user) return Response.json({ errormsg: 'Unauthorized' }, { status: 401 })
-
     const user_id = await Dao.assertIAUserId(user.preferredUsername || user.name)
-
     const { messages } = await req.json()
-
     const { model, modelRef, apiKeyFromEnv } = await getModel()
 
     // const anonymize = req.headers.get('cookie')?.includes('anonymize=true')
     // if (anonymize) {
     //     messages.forEach((message: any) => {
     //         if (message.role === 'user' && message.content) {
-    //             console.log('Anonymizing user message content:', message.content)
     //             message.content = anonymizeText(message.content).text
     //         }
     //     })
@@ -72,5 +68,7 @@ export async function POST(req: Request) {
         return new Response(result, { status: 200 })
     }
 
-    return ((await result) as StreamTextResult<ToolSet, any>).toUIMessageStreamResponse();
+    return ((await result.textStream) as StreamTextResult<ToolSet, any>).toUIMessageStreamResponse();
 }
+
+export const POST = withErrorHandler(POST_HANDLER as any)

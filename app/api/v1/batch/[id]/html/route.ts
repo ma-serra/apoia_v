@@ -4,9 +4,12 @@ import { formatBrazilianDate, maiusculasEMinusculas, slugify } from "@/lib/utils
 import { preprocess } from "@/lib/ui/preprocess"
 import { fixText } from "@/lib/fix"
 import { tua } from "@/lib/proc/tua"
-import { getCurrentUser } from "@/lib/user"
+import { getCurrentUser, assertApiUser } from "@/lib/user"
 import mapping from './mapping.json'
 import mappingByUnit from './mapping-by-unit.json'
+import devLog from "@/lib/utils/log"
+import { UnauthorizedError, ForbiddenError, withErrorHandler } from '@/lib/utils/api-error'
+import { NextRequest, NextResponse } from "next/server"
 
 export const maxDuration = 60
 
@@ -52,10 +55,9 @@ const preprocessAgrupamento = (text: string) => {
  *       200:
  *         description: Relatório em HTML
  */
-export async function GET(req: Request, props: { params: Promise<{ name: string }> }) {
+async function GET_HANDLER(req: NextRequest, props: { params: Promise<{ id: string }> }) {
     const params = await props.params;
-    const user = await getCurrentUser()
-    if (!user) return Response.json({ errormsg: 'Unauthorized' }, { status: 401 })
+    const user = await assertApiUser()
 
     const { searchParams } = new URL(req.url)
     const ungrouped = searchParams.get('ungrouped') === 'true'
@@ -63,25 +65,47 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
     const filterParam = searchParams.get('filter')
     const filterIndexRaw = filterParam ? parseInt(filterParam, 10) : undefined
 
-    const batch_id = await Dao.assertIABatchId(params.name)
+    const batch_id = Number(params.id)
+    const owns = await Dao.assertBatchOwnership(batch_id)
+    if (!owns) throw new ForbiddenError()
+
+    const batch = await Dao.getBatchSummary(batch_id)
+
     const enum_id = await Dao.assertIAEnumId(Plugin.TRIAGEM)
 
     let html = ''
 
     const items = await Dao.retrieveByBatchIdAndEnumId(batch_id, enum_id)
 
-    // console.log('items', items.length)
-
     // use main item if available
     for (const item of items)
         item.enum_item_descr = item.enum_item_descr_main || item.enum_item_descr
+
+    // Apply batch index mappings (descr_from -> descr_to) before grouping
+    try {
+        const mappings = await Dao.listBatchFixIndexMap(batch_id)
+        if (mappings && mappings.length) {
+            const mapFromTo = mappings.reduce((acc, m) => {
+                // If multiple entries exist for the same descr_from, keep the first
+                if (acc[m.descr_from] === undefined) acc[m.descr_from] = m.descr_to
+                return acc
+            }, {} as Record<string, string>)
+            for (const item of items) {
+                const mapped = mapFromTo[item.enum_item_descr]
+                if (mapped && mapped !== item.enum_item_descr) {
+                    item.enum_item_descr = mapped
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Could not load/apply index mappings for batch', batch_id, e)
+    }
 
     const enumDescrs = items.reduce((acc, i) => {
         if (!acc.includes(i.enum_item_descr))
             acc.push(i.enum_item_descr)
         return acc
     }, [] as string[])
-    // console.log('enumDescrs', enumDescrs)
     if (!enumDescrs[0]) {
         const firstEnumDescr = enumDescrs.shift() as string
         if (ungrouped)
@@ -95,7 +119,7 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
 
     let triageItems = enumDescrs.map(d => ({ descr: d, items: map[d] }))
 
-    html += `<h1>${params.name}</h1>`
+    html += `<h1>${batch.name}</h1>`
 
     const palavrasChave = await Dao.retrieveCountByBatchIdAndEnumId(batch_id, await Dao.assertIAEnumId(Plugin.PALAVRAS_CHAVE))
     const palavrasChaveJson = computeScaledKeywords(palavrasChave, 100)
@@ -108,13 +132,10 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
     html += `
         <div style="width: 100%; text-align: center;">
         <canvas id="keyword_canvas" width="1000" height="500"></canva>
-        </div>
-        <div style="width: 100%; text-align: center; margin-bottom: 3em;"><hr style="width: 50%"/>Nuvem de Palavras-Chave</div>
-
-        <div style="width: 100%; text-align: center;">
-        <canvas id="law_canvas" width="1000" height="500"></canva>
-        </div>
-        <div style="width: 100%; text-align: center;"><hr style="width: 50%"/>Nuvem de Normas</div>
+        </div>`
+        
+    if (palavrasChave.length > 0)
+        html += `<div style="width: 100%; text-align: center; margin-bottom: 3em;"><hr style="width: 50%"/>Nuvem de Palavras-Chave</div>
         <script>
             WordCloud(document.getElementById('keyword_canvas'), { list: ${palavrasChaveJson},
                 // gridSize: Math.round(16 * document.getElementById('keyword_canvas').offsetWidth / 1024),
@@ -126,6 +147,14 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
                 rotateRatio: 0,
                 rotationSteps: 1,
             });
+        </script>`
+
+    if (normas.length > 0)
+        html += `<div style="width: 100%; text-align: center;">
+        <canvas id="law_canvas" width="1000" height="500"></canvas>
+        </div>
+        <div style="width: 100%; text-align: center;"><hr style="width: 50%"/>Nuvem de Normas</div>
+        <script>
             WordCloud(document.getElementById('law_canvas'), { list: ${normasJson},
                 // gridSize: Math.round(16 * document.getElementById('keyword_canvas').offsetWidth / 1024),
                 // weightFactor: function (size) {
@@ -141,24 +170,20 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
     // index
     if (false && triageItems.length === 1 && triageItems[0].descr === '') {
         const originalTriageItems = triageItems
-        // console.log('originalIndex', JSON.stringify(originalTriageItems.map(ti => ({ descr: ti.descr, count: ti.items.length }))))
         const mappedTriageItems = mapping.map(m => ({ ...m, items: [] }))
         for (const ti of originalTriageItems) {
             const mappedBy = mappedTriageItems.find(m => m.groupedItems.find(g => g === ti.descr))
             if (mappedBy) {
                 mappedBy.items = [...mappedBy.items, ...ti.items]
             } else {
-                // console.log('mapping not found', ti.descr)
                 mappedTriageItems.push({ descr: ti.descr, items: ti.items, groupedItems: [ti.descr] })
             }
         }
         triageItems = mappedTriageItems //.filter(ti => ti.items.length > 0)
-        // console.log('\n\nmappedTriageItems', JSON.stringify(mappedTriageItems.map(ti => ({ descr: ti.descr, count: ti.items.length }))))
     }
 
     // index by unit
     if (false) {
-        // console.log('originalIndex', JSON.stringify(originalTriageItems.map(ti => ({ descr: ti.descr, count: ti.items.length }))))
         const units = [...new Set(Object.values(mappingByUnit))] as string[]
         const preprocessUnitToSort = (unit: string) => {
             return unit.replace(/\d+/g, (n) => n.padStart(2, '0'));
@@ -172,7 +197,7 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
                     throw new Error(`Mapping unit not found for ${ti.dossier_code} (${ti.enum_item_descr})`)
                 found.items.push(ti)
             } else {
-                console.log(`Mapping not found for ${ti.dossier_code} (${ti.enum_item_descr})`)
+                devLog(`Mapping not found for ${ti.dossier_code} (${ti.enum_item_descr})`)
             }
         }
         triageItems = mappedItems //.filter(ti => ti.items.length > 0)
@@ -187,11 +212,11 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
 
     // Build dynamic title for printing (browser uses document.title as suggested filename)
     const printTitle = (() => {
-        if (!triageItems.length) return params.name
-        if (suppressIndex) return `${params.name} - ${preprocessAgrupamento(triageItems[0].descr)}`
-        return params.name
+        if (!triageItems.length) return batch.name
+        if (suppressIndex) return `${batch.name} - ${preprocessAgrupamento(triageItems[0].descr)}`
+        return batch.name
     })()
-    const slugPrintTitle = slugify(printTitle) || slugify(params.name)
+    const slugPrintTitle = slugify(printTitle) || slugify(batch.name)
 
     if (!suppressIndex) {
         html += `<div class="page"><h2>Índice</h2>`
@@ -227,7 +252,6 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
 
         for (const item of ti.items) {
             const nomeDaClasse = tua[item.dossier_class_code]
-            // console.log('nomeDaClasse', nomeDaClasse)
             html += `<div class="page"><h1 class="titulo">Processo ${item.dossier_code}</h1>`
             html += `<div class="subtitulo">`
             if (nomeDaClasse) html += nomeDaClasse
@@ -274,10 +298,7 @@ export async function GET(req: Request, props: { params: Promise<{ name: string 
             count++
         }
     }
-    // console.log('count', count)
-    console.log('globalCount', globalCount)
-
-    return new Response(formated(html, slugPrintTitle), { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+    return new NextResponse(formated(html, slugPrintTitle), { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
 
 const buildPDF = async (html: string, filename: string, disposition) => {
@@ -303,7 +324,7 @@ const buildPDF = async (html: string, filename: string, disposition) => {
     headers.append("Content-Type", "application/pdf")
     headers.append("Content-Length", pdf.length.toString())
 
-    return new Response(pdf, { headers })
+    return new NextResponse(pdf, { headers })
 }
 
 const formated = (html: string, title?: string) => {
@@ -416,3 +437,4 @@ ${html}
 </html>`
 }
 
+export const GET = withErrorHandler(GET_HANDLER)

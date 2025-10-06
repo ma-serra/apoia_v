@@ -14,6 +14,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { EMPTY_PREFS_COOKIE, PrefsCookieType } from '@/lib/utils/prefs-types'
 import { assertCourtId, getCurrentUser } from "../user"
 import { LanguageModelV2 } from "@ai-sdk/provider"
+import devLog from "../utils/log"
 
 function getEnvKeyByModel(model: string): string {
     if (!model) throw new Error('Model is required')
@@ -96,7 +97,7 @@ export async function getSelectedModelParams(): Promise<ModelParams> {
         try {
             apiKey = getApiKeyByModel(model, prefs || EMPTY_PREFS_COOKIE, seqTribunalPai)
         } catch (e) {
-            console.log(`Error getting API key for model ${model}`)
+            devLog(`Error getting API key for model ${model}`)
             apiKey = undefined
             model = undefined
         }
@@ -138,6 +139,8 @@ export async function getModel(params?: { structuredOutputs: boolean, overrideMo
     let { model, apiKey, azureResourceName, awsRegion, awsAccessKeyId, apiKeyFromEnv } = await getSelectedModelParams()
     if (params?.overrideModel) model = params.overrideModel
 
+    if (!model) throw new Error('Nenhum modelo de IA configurado. Por favor, acesse /prefs para configurar um modelo.')
+
 
     if (getEnvKeyByModel(model) === ModelProvider.ANTHROPIC.apiKey) {
         const anthropic = createAnthropic({ apiKey })
@@ -162,23 +165,6 @@ export async function getModel(params?: { structuredOutputs: boolean, overrideMo
     if (getEnvKeyByModel(model) === ModelProvider.AWS.apiKey) {
         const bedrock = createAmazonBedrock({ region: awsRegion, accessKeyId: awsAccessKeyId, secretAccessKey: apiKey })
         const modelRef = bedrock(model.replace('aws-', '')) as unknown as LanguageModelV2
-
-        // const { text } = await generateText({
-        //     model: modelRef,
-        //     prompt: 'Write a vegetarian lasagna recipe for 4 people.',
-        //   });
-        // console.log(text)
-
-        // const result = streamText({
-        //     model: modelRef,
-        //     messages: [{
-        //         role: 'user',
-        //         content: 'Write a vegetarian lasagna recipe for 4 people.',
-        //     }],
-        // });
-        // for await (const textPart of result.textStream) 
-        //     console.log(textPart);
-
         return { model, modelRef, apiKeyFromEnv }
     }
     if (getEnvKeyByModel(model) === ModelProvider.GROQ.apiKey) {

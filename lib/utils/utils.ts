@@ -15,6 +15,12 @@ export const primeiroEUltimoNome = (nome: string): string => {
 
 export const maiusculasEMinusculas = (s) => {
   if (!s) return s
+
+  const splited = s.split(' - ', 2)
+  if (splited.length > 1) {
+    return maiusculasEMinusculas(splited[0]) + ' - ' + splited[1]
+  }
+
   let sb = "";
   let f = true;
 
@@ -148,7 +154,6 @@ export const formatBrazilianDateTime = (dt: Date) => {
 }
 
 export const formatBrazilianDate = (dt: Date) => {
-  // console.log('dt', dt, 'type:', typeof dt)
   if (!dt) return ''
   if (typeof dt === 'string')
     dt = new Date(dt)

@@ -1,4 +1,4 @@
-import { assertCurrentUser, getCurrentUser } from "../user"
+import { assertCurrentUser, getCurrentUser, isUserModerator } from "../user"
 import { slugify } from "../utils/utils"
 import * as mysqlTypes from "./mysql-types"
 import knex from './knex'
@@ -7,6 +7,8 @@ import { Instance, Matter, Scope } from "../proc/process-types"
 import { envNumber, envString } from "../utils/env"
 import { dailyLimits } from "../utils/limits"
 import { IS_APPLE } from "@mdxeditor/editor"
+import type { IABatch, IABatchJob, IABatchSummary } from './mysql-types'
+import { PublicError } from "../utils/public-error"
 
 function getId(returning: number | { id: number }): number {
     return typeof returning === 'number' ? returning : returning.id
@@ -115,6 +117,24 @@ export class Dao {
         const del = await knex('ia_library_example').delete().where({ library_id, process_number })
         return del > 0
     }
+    
+    // Rewrite all mappings for a batch: delete existing and insert the new set
+    static async rewriteBatchFixIndexMap(batch_id: number, pairs: { descr_from: string, descr_to: string }[]): Promise<number> {
+        if (!knex) return 0
+        return await knex.transaction(async (trx) => {
+            await trx('ia_batch_index_map').where({ batch_id }).delete()
+            if (!pairs.length) return 0
+            const rows = pairs.map(p => ({ batch_id, descr_from: p.descr_from, descr_to: p.descr_to }))
+            const inserted = await trx('ia_batch_index_map').insert(rows).returning('id')
+            return Array.isArray(inserted) ? inserted.length : (inserted ? 1 : 0)
+        })
+    }
+
+    static async listBatchFixIndexMap(batch_id: number): Promise<{ descr_from: string, descr_to: string }[]> {
+        if (!knex) return []
+        const rows = await knex('ia_batch_index_map').select('descr_from', 'descr_to').where({ batch_id }).orderBy('descr_from').orderBy('descr_to')
+        return rows as any
+    }
     static async addInternalPrompt(kind: string): Promise<mysqlTypes.IAPrompt> {
         if (!knex) return {} as mysqlTypes.IAPrompt
         const [result] = await knex('ia_prompt').insert<mysqlTypes.IAPrompt>({
@@ -207,16 +227,18 @@ export class Dao {
 
 
     static async insertIAPrompt(conn: any, data: mysqlTypes.IAPromptToInsert): Promise<mysqlTypes.IAPrompt | undefined> {
-        const { base_id, kind, name, model_id, testset_id, share, content } = data
+        const { base_id, kind, name, model_id, testset_id, share, content, created_by } = data
         const slug = slugify(name)
-        const created_by = await getCurrentUserId()
+        const user = await assertCurrentUser()
+        const isModerator = await isUserModerator(user)
+        const created_by_or_current_user = isModerator && created_by ? created_by : (await getCurrentUserId())
         if (data.base_id) {
             await knex('ia_prompt').update({ is_latest: 0 }).where({ base_id: data.base_id })
         }
         this.dehydratatePromptContent(data.content)
         const [result] = await knex('ia_prompt').insert<mysqlTypes.IAPrompt>({
             base_id: base_id,
-            kind, name, slug, model_id, testset_id, content: JSON.stringify(content), created_by, is_latest: 1, share
+            kind, name, slug, model_id, testset_id, content: JSON.stringify(content), created_by: created_by_or_current_user, is_latest: 1, share
         }).returning('id')
         const id = getId(result)
         if (!data.base_id) {
@@ -230,7 +252,7 @@ export class Dao {
         const trx = await knex.transaction()
 
         const prompt = await Dao.retrievePromptById(id)
-        if (!prompt) throw new Error('Prompt not found')
+        if (!prompt) throw new PublicError('Prompt não encontrado')
         try {
             await trx('ia_prompt').update<mysqlTypes.IAPrompt>({
                 is_official: 0,
@@ -275,6 +297,27 @@ export class Dao {
         return result
     }
 
+    // Lista prompts favoritos (qualquer share) do usuário corrente trazendo somente a versão mais recente
+    static async retrieveFavoriteLatestPromptsForCurrentUser(): Promise<{ base_id: number, name: string, target: string }[]> {
+        const userId = await getCurrentUserId()
+        // Use DB-dialect specific JSON extraction (Postgres vs MySQL).
+        const jsonTargetExpr = knex.client.config.client === 'pg'
+            ? "(p.content::json ->> 'target') as target"
+            : "JSON_UNQUOTE(JSON_EXTRACT(p.content, '$.target')) as target"
+
+        const rows = await knex('ia_prompt as p')
+            .innerJoin('ia_favorite as f', 'f.prompt_id', 'p.base_id')
+            .select(
+                'p.base_id as base_id',
+                'p.name as name',
+                knex.raw(jsonTargetExpr)
+            )
+            .where('f.user_id', userId)
+            .andWhere('p.is_latest', 1)
+            .orderBy('p.name', 'asc')
+        return (rows || []).map(r => ({ base_id: Number((r as any).base_id), name: (r as any).name, target: (r as any).target }))
+    }
+
     static async retrieveCountersByPromptKinds(): Promise<{ kind: string, prompts: number, testsets: number }[]> {
         if (!knex) return
         const sql = knex('ia_prompt as p')
@@ -294,7 +337,6 @@ export class Dao {
             )
             .leftJoin('ia_testset as t', 't.kind', '=', 'p.kind')
             .groupBy('k.kind');  // Group by 'kind' from the union
-        // console.log('***counters', sql.toString());
         const result = await sql
 
         if (!result || result.length === 0) return []
@@ -351,7 +393,6 @@ export class Dao {
             .from('t2');
 
         // Exibe a consulta SQL gerada
-        // console.log('***prompts', finalQuery.toString());
         const result = await finalQuery
         if (!result || result.length === 0) return []
         const records = result.map((record: any) => ({ ...record }))
@@ -410,7 +451,7 @@ export class Dao {
             .from('t2');
 
         // Ou para ver a consulta SQL gerada:
-        // console.log('***testsets', finalQuery.toString());
+        // devLog('***testsets', finalQuery.toString());
         const result = await finalQuery
         if (!result || result.length === 0) return []
         const records = result.map((record: any) => ({ ...record }))
@@ -737,7 +778,6 @@ export class Dao {
             .groupBy('ei.descr', 'ei.hidden')
         // .orderBy(knex.raw('count(distinct bd.id)'), 'desc');
         result.sort((a, b) => a.count - b.count)
-        // console.log('result', result)
         return result
     }
 
@@ -804,13 +844,15 @@ export class Dao {
 
     static async assertIABatchId(batchName: string): Promise<number> {
         if (!knex) return
-        const bach = await knex('ia_batch').select('id').where({
-            name: batchName
-        }).first()
-        if (bach) {
-            return bach.id
+        const created_by = await getCurrentUserId()
+        // Prefer batch owned by current user
+        let bach = await knex('ia_batch').select('id').where({ name: batchName, created_by }).first()
+        if (!bach) {
+            // Fallback to any batch with same name (legacy batches without created_by)
+            bach = await knex('ia_batch').select('id').where({ name: batchName }).first()
         }
-        const [created] = await knex('ia_batch').insert({ name: batchName }).returning('id')
+        if (bach) return bach.id
+        const [created] = await knex('ia_batch').insert({ name: batchName, created_by }).returning('id')
         return getId(created)
     }
 
@@ -838,7 +880,7 @@ export class Dao {
         return getId(dossierResult)
     }
 
-
+    
     static async assertIADocumentId(dossier_id: number, code: string, assigned_category: string | null): Promise<number> {
         if (!knex) return
         let document = await knex('ia_document').select<mysqlTypes.IADocument[]>('id', 'assigned_category').where({ code }).first()
@@ -969,6 +1011,11 @@ export class Dao {
             .orderBy('e.id')
             .orderBy('ei.descr')
         return result
+    }
+
+    static async updateIAEnumItemDescrMain(enum_item_id: number, enum_item_descr_main: string | null): Promise<void> {
+        if (!knex) return
+        await knex('ia_enum_item').update({ enum_item_descr_main }).where({ id: enum_item_id })
     }
 
 
@@ -1191,7 +1238,6 @@ export class Dao {
             g.orderBy('u.name').orderBy('d.code')
         }
 
-        // console.log('SQL:', g.toQuery())
         const rows: any[] = await g
 
         return rows.map(r => ({
@@ -1258,6 +1304,348 @@ export class Dao {
             model: r.model ?? null,
             prompt: r.prompt ?? null,
         }))
+    }
+
+    static async createBatchWithJobs(params: { name: string, tipo_de_sintese?: string | null, prompt_base_id?: number | null, complete: boolean, numbers: string[] }): Promise<mysqlTypes.IABatch> {
+        const userId = await getCurrentUserId()
+        const { name } = params
+        let { tipo_de_sintese, prompt_base_id, complete, numbers } = params
+        // Validação de exclusividade
+        if ((tipo_de_sintese && prompt_base_id) || (!tipo_de_sintese && !prompt_base_id)) {
+            throw new Error('Informe exatamente um entre tipo_de_sintese ou prompt_base_id')
+        }
+        if (prompt_base_id) {
+            tipo_de_sintese = null
+        } else {
+            prompt_base_id = null
+        }
+        const insertData: any = { name, created_by: userId, tipo_de_sintese, prompt_base_id, complete, paused: true }
+        const [batchIdRet] = await knex('ia_batch').insert(insertData).returning('id')
+        const batch_id = getId(batchIdRet)
+        const rows = numbers
+            .map(n => (n || '').replace(/\D/g, ''))
+            .filter(n => n && n.length === 20)
+            .map(n => ({ batch_id, dossier_code: n }))
+        if (rows.length) await knex('ia_batch_job').insert(rows)
+        const batch = await knex('ia_batch').select('*').where({ id: batch_id }).first()
+        return batch as mysqlTypes.IABatch
+    }
+
+    static async listBatchesForUser(): Promise<mysqlTypes.IABatchSummary[]> {
+        const userId = await getCurrentUserId()
+        // Aggregate counts and cost in a single query per batch
+        const batches: any[] = await knex('ia_batch as b')
+            .select(
+                'b.id', 'b.name', 'b.tipo_de_sintese', 'b.prompt_base_id', 'b.complete', 'b.paused',
+                knex.raw('p_latest.id as prompt_latest_id'),
+                knex.raw('p_latest.name as prompt_latest_name')
+            )
+            .leftJoin('ia_prompt as p_latest', function () {
+                this.on('p_latest.base_id', '=', 'b.prompt_base_id')
+                    .andOn('p_latest.is_latest', knex.raw('?', [true]))
+            })
+            .where('b.created_by', userId)
+            .orderBy('b.created_at', 'desc')
+        if (!batches.length) return []
+        const batchIds = batches.map(b => b.id)
+        const jobs = await knex('ia_batch_job')
+            .select('batch_id', 'status')
+            .count('* as cnt')
+            .whereIn('batch_id', batchIds)
+            .groupBy('batch_id', 'status')
+        const costs = await knex('ia_batch_job')
+            .select('batch_id')
+            .sum({ sum: 'cost_sum' })
+            .whereIn('batch_id', batchIds)
+            .andWhere('status', 'READY')
+            .groupBy('batch_id')
+        const durations = await knex('ia_batch_job')
+            .select('batch_id')
+            .avg({ avg: 'duration_ms' })
+            .whereIn('batch_id', batchIds)
+            .andWhere('status', 'READY')
+            .groupBy('batch_id')
+        const byId: Record<number, mysqlTypes.IABatchSummary> = {}
+        for (const b of batches) {
+            byId[b.id] = { id: b.id, name: b.name, tipo_de_sintese: b.tipo_de_sintese, prompt_base_id: b.prompt_base_id, prompt_latest_id: b.prompt_latest_id ?? null, prompt_latest_name: b.prompt_latest_name ?? null, complete: !!b.complete, paused: !!b.paused, totals: { total: 0, pending: 0, running: 0, ready: 0, error: 0 }, spentCost: 0, estimatedTotalCost: 0, avgDurationMs: null, etaMs: null }
+        }
+        for (const jAny of jobs as any[]) {
+            const s = jAny.status as mysqlTypes.IABatchJob['status']
+            const cnt = Number(jAny.cnt)
+            const agg = byId[jAny.batch_id]
+            if (!agg) continue
+            agg.totals.total += cnt
+            if (s === 'PENDING') agg.totals.pending += cnt
+            if (s === 'RUNNING') agg.totals.running += cnt
+            if (s === 'READY') agg.totals.ready += cnt
+            if (s === 'ERROR') agg.totals.error += cnt
+        }
+        for (const cAny of costs as any[]) {
+            const agg = byId[cAny.batch_id]
+            if (!agg) continue
+            agg.spentCost = Number(cAny.sum || 0)
+        }
+        for (const dAny of durations as any[]) {
+            const agg = byId[dAny.batch_id]
+            if (!agg) continue
+            agg.avgDurationMs = dAny.avg != null ? Number(dAny.avg) : null
+        }
+        // Estimate total cost: avg cost of READY * total jobs
+        for (const id of Object.keys(byId)) {
+            const agg = byId[Number(id)]
+            const ready = Math.max(1, agg.totals.ready)
+            const avgCost = agg.spentCost / ready
+            agg.estimatedTotalCost = Number.isFinite(avgCost) ? avgCost * agg.totals.total : agg.spentCost
+            const remaining = agg.totals.total - agg.totals.ready - agg.totals.error
+            agg.etaMs = agg.avgDurationMs ? Math.round(agg.avgDurationMs * Math.max(remaining, 0)) : null
+        }
+        return Object.values(byId)
+    }
+
+    static async getBatchSummary(batch_id: number): Promise<mysqlTypes.IABatchSummary | undefined> {
+        const b = await knex('ia_batch as b')
+            .select(
+                'b.*',
+                knex.raw('p_latest.id as prompt_latest_id'),
+                knex.raw('p_latest.name as prompt_latest_name')
+            )
+            .leftJoin('ia_prompt as p_latest', function () {
+                this.on('p_latest.base_id', '=', 'b.prompt_base_id')
+                    .andOn('p_latest.is_latest', knex.raw('?', [true]))
+            })
+            .where('b.id', batch_id)
+            .first()
+        if (!b) return
+        const counts = await knex('ia_batch_job')
+            .select('status')
+            .count('* as cnt')
+            .where({ batch_id })
+            .groupBy('status')
+        // Custo atual: soma de approximate_cost das gerações vinculadas ao lote
+        const costRow = await knex('ia_batch_dossier_item as bdi')
+            .innerJoin('ia_generation as g', 'g.id', 'bdi.generation_id')
+            .innerJoin('ia_batch_dossier as bd', 'bd.id', 'bdi.batch_dossier_id')
+            .sum({ sum: 'g.approximate_cost' })
+            .where('bd.batch_id', batch_id)
+            .first()
+        const durRow = await knex('ia_batch_job')
+            .avg({ avg: 'duration_ms' })
+            .where({ batch_id, status: 'READY' })
+            .first()
+        const totals = { total: 0, pending: 0, running: 0, ready: 0, error: 0 }
+            ; (counts as any[]).forEach(c => {
+                const s = c.status as mysqlTypes.IABatchJob['status']
+                const cnt = Number(c.cnt)
+                totals.total += cnt
+                if (s === 'PENDING') totals.pending += cnt
+                if (s === 'RUNNING') totals.running += cnt
+                if (s === 'READY') totals.ready += cnt
+                if (s === 'ERROR') totals.error += cnt
+            })
+        const spentCost = Number((costRow as any)?.sum || 0)
+        const avgDurationMs = (durRow as any)?.avg != null ? Number((durRow as any).avg) : null
+        // Média por dossiê (job) pronto, não por item; garante estimado >= atual quando há pendentes
+        const readyCount = Math.max(1, totals.ready)
+        const avgCost = spentCost / readyCount
+        const estimatedTotalCost = Number.isFinite(avgCost) ? avgCost * totals.total : spentCost
+        const remaining = totals.total - totals.ready - totals.error
+        const etaMs = avgDurationMs ? Math.round(avgDurationMs * Math.max(remaining, 0)) : null
+        return { id: b.id, name: b.name, tipo_de_sintese: b.tipo_de_sintese, prompt_base_id: (b as any).prompt_base_id, prompt_latest_id: (b as any).prompt_latest_id ?? null, prompt_latest_name: (b as any).prompt_latest_name ?? null, complete: !!b.complete, paused: !!b.paused, totals, spentCost, estimatedTotalCost, avgDurationMs, etaMs }
+    }
+
+    static async listBatchJobs(batch_id: number, status?: mysqlTypes.IABatchJob['status'] | 'all', page?: number, pageSize: number = 10000): Promise<mysqlTypes.IABatchJob[]> {
+        const q = knex('ia_batch_job').select('*').where({ batch_id })
+        if (status && status !== 'all') q.andWhere('status', status)
+        q.orderBy('created_at', 'asc').limit(pageSize).offset(((page || 1) - 1) * pageSize)
+        const rows = await q
+        return rows as any
+    }
+
+    static async setBatchPaused(batch_id: number, paused: boolean): Promise<void> {
+        await knex('ia_batch').update({ paused }).where({ id: batch_id })
+    }
+
+    static async assertBatchOwnership(batch_id: number): Promise<boolean> {
+        const userId = await getCurrentUserId()
+        const row = await knex('ia_batch').select('id').where({ id: batch_id, created_by: userId }).first()
+        return !!row
+    }
+
+    static async findBatchDossierByBatchAndCode(batch_id: number, dossier_code: string): Promise<{ batch_dossier_id: number, dossier_id: number } | undefined> {
+        const row = await knex('ia_batch_dossier as bd')
+            .select('bd.id as batch_dossier_id', 'd.id as dossier_id')
+            .innerJoin('ia_dossier as d', 'd.id', 'bd.dossier_id')
+            .where('bd.batch_id', batch_id)
+            .andWhere('d.code', dossier_code)
+            .first()
+        if (!row) return
+        return { batch_dossier_id: (row as any).batch_dossier_id, dossier_id: (row as any).dossier_id }
+    }
+
+    static async computeCostSumByBatchDossierId(batch_dossier_id: number): Promise<number> {
+        const row = await knex('ia_batch_dossier_item as bdi')
+            .leftJoin('ia_generation as g', 'g.id', 'bdi.generation_id')
+            .where('bdi.batch_dossier_id', batch_dossier_id)
+            .sum({ sum: 'g.approximate_cost' })
+            .first()
+        return Number((row as any)?.sum || 0)
+    }
+
+    static async stepBatch(batch_id: number, fnProcess: (job: mysqlTypes.IABatchJob) => Promise<{ status: 'READY' | 'ERROR', error_msg?: string, cost_sum?: number, dossier_id?: number }>, opts?: { job_id?: number, dossier_code?: string }): Promise<mysqlTypes.IABatchJob | undefined> {
+        // Find one pending job: if opts.job_id provided, target by id; else if dossier_code provided, target by dossier; otherwise FIFO
+        const q = knex('ia_batch_job').select('*').where({ batch_id, status: 'PENDING' })
+        if (opts?.job_id) q.andWhere('id', opts.job_id)
+        else if (opts?.dossier_code) q.andWhere('dossier_code', opts.dossier_code)
+        const job = await q.orderBy('created_at', 'asc').first()
+        if (!job) return
+        const started_at = new Date()
+        await knex('ia_batch_job').update({ status: 'RUNNING', started_at, attempts: knex.raw('attempts + 1') }).where({ id: job.id })
+        try {
+            const result = await fnProcess(job as mysqlTypes.IABatchJob)
+            const finished_at = new Date()
+            const duration_ms = finished_at.getTime() - started_at.getTime()
+            let cost_sum = result.cost_sum ?? job.cost_sum
+            let dossier_id = result.dossier_id ?? job.dossier_id
+            if (result.status === 'READY') {
+                // Try compute cost and dossier_id from persisted batch_dossier
+                const bd = await this.findBatchDossierByBatchAndCode(batch_id, (job as any).dossier_code)
+                if (bd) {
+                    dossier_id = bd.dossier_id
+                    cost_sum = await this.computeCostSumByBatchDossierId(bd.batch_dossier_id)
+                }
+            }
+            await knex('ia_batch_job').update({ status: result.status, finished_at, duration_ms, error_msg: result.error_msg || null, cost_sum, dossier_id }).where({ id: job.id })
+            await knex('ia_batch').update({ last_activity_at: new Date() }).where({ id: batch_id })
+            const updated = await knex('ia_batch_job').select('*').where({ id: job.id }).first()
+            return updated as any
+        } catch (e) {
+            const finished_at = new Date()
+            const duration_ms = finished_at.getTime() - started_at.getTime()
+            await knex('ia_batch_job').update({ status: 'ERROR', finished_at, duration_ms, error_msg: (e as Error).message || String(e) }).where({ id: job.id })
+            await knex('ia_batch').update({ last_activity_at: new Date() }).where({ id: batch_id })
+            const updated = await knex('ia_batch_job').select('*').where({ id: job.id }).first()
+            return updated as any
+        }
+    }
+
+    static async retryJob(batch_id: number, job_id: number): Promise<void> {
+        await knex('ia_batch_job').update({ status: 'PENDING', error_msg: null, started_at: null, finished_at: null, duration_ms: null }).where({ id: job_id, batch_id })
+    }
+
+    static async stopJob(batch_id: number, job_id: number): Promise<void> {
+        await knex('ia_batch_job').update({ status: 'PENDING', error_msg: null, started_at: null, finished_at: null, duration_ms: null }).where({ id: job_id, batch_id })
+    }
+
+    static async addJobs(batch_id: number, numbers: string[]): Promise<number> {
+        // Normalize numbers to only digits with length 20 and deduplicate
+        const cleaned = numbers
+            .map(n => (n || '').replace(/\D/g, ''))
+            .filter(n => n && n.length === 20)
+        const unique = Array.from(new Set(cleaned))
+        if (!unique.length) return 0
+
+        // Exclude numbers that are already present for this batch
+        const existingRows = await knex('ia_batch_job')
+            .select('dossier_code')
+            .where({ batch_id })
+            .whereIn('dossier_code', unique)
+        const existing = new Set(existingRows.map((r: any) => r.dossier_code))
+
+        const rows = unique
+            .filter(n => !existing.has(n))
+            .map(n => ({ batch_id, dossier_code: n }))
+
+        if (!rows.length) return 0
+        const inserted = await knex('ia_batch_job').insert(rows).returning('id')
+        return Array.isArray(inserted) ? inserted.length : (inserted ? 1 : 0)
+    }
+
+    static async deleteJobs(batch_id: number, numbers: string[]): Promise<number> {
+        const cleaned = numbers.map(n => (n || '').replace(/\D/g, '')).filter(n => n && n.length === 20)
+        if (!cleaned.length) return 0
+        let totalDeleted = 0
+        for (const code of cleaned) {
+            const deleted = await this.deleteJobDeep(batch_id, code)
+            totalDeleted += deleted
+        }
+        return totalDeleted
+    }
+
+    static async getErrorsCsv(batch_id: number): Promise<string> {
+        const rows = await knex('ia_batch_job').select('dossier_code', 'attempts', 'error_msg', 'started_at', 'finished_at', 'duration_ms').where({ batch_id, status: 'ERROR' }).orderBy('finished_at', 'desc')
+        const header = 'dossier_code;attempts;error_msg;started_at;finished_at;duration_ms\n'
+        const body = rows.map(r => [r.dossier_code, r.attempts, (r.error_msg || '').replace(/[\r\n]+/g, ' '), r.started_at ? new Date(r.started_at).toISOString() : '', r.finished_at ? new Date(r.finished_at).toISOString() : '', r.duration_ms ?? ''].join(';')).join('\n')
+        return header + body + '\n'
+    }
+
+    // Delete a job and its batch dossier links (if any), as long as it's not RUNNING
+    static async deleteJobDeep(batch_id: number, dossier_code: string): Promise<number> {
+        return await knex.transaction(async (trx) => {
+            // Only allow delete when not RUNNING
+            const job = await trx('ia_batch_job').select('id', 'status').where({ batch_id, dossier_code }).first()
+            if (!job) return 0
+            if ((job as any).status === 'RUNNING') return 0
+
+            // Find batch_dossier ids for this batch + dossier_code
+            const bdRows = await trx('ia_batch_dossier as bd')
+                .select('bd.id')
+                .innerJoin('ia_dossier as d', 'd.id', 'bd.dossier_id')
+                .where('bd.batch_id', batch_id)
+                .andWhere('d.code', dossier_code)
+
+            const bdIds = bdRows.map(r => (r as any).id)
+            if (bdIds.length) {
+                await trx('ia_batch_dossier_item').whereIn('batch_dossier_id', bdIds).delete()
+                await trx('ia_batch_dossier').whereIn('id', bdIds).delete()
+            }
+
+            const del = await trx('ia_batch_job').where({ batch_id, dossier_code }).andWhereNot({ status: 'RUNNING' }).delete()
+            return del
+        })
+    }
+
+    // Backfill helper: for READY jobs missing cost_sum, compute from persisted generations and save it.
+    static async backfillJobCost(batch_id: number, job_id: number, dossier_code: string): Promise<number | null> {
+        const bd = await this.findBatchDossierByBatchAndCode(batch_id, dossier_code)
+        if (!bd) return null
+        const cost = await this.computeCostSumByBatchDossierId(bd.batch_dossier_id)
+        await knex('ia_batch_job').update({ cost_sum: cost, dossier_id: bd.dossier_id }).where({ id: job_id, batch_id })
+        return cost
+    }
+
+    /**
+     * Delete a batch and all related data (jobs, batch dossiers, items and enum item links).
+     * Only allowed if the current user is the owner (created_by) of the batch.
+     * Returns true if the batch was deleted, false if not found or not authorized.
+     */
+    static async deleteBatch(batch_id: number): Promise<boolean> {
+        if (!knex) throw new Error('DB not ready')
+        const user = await assertCurrentUser()
+        const currentUserId = await Dao.assertIAUserId(user.preferredUsername || user.name)
+        const batchRow: any = await knex('ia_batch').select('id', 'created_by').where({ id: batch_id }).first()
+        if (!batchRow) return false
+        if (batchRow.created_by !== currentUserId) return false
+
+        return await knex.transaction(async trx => {
+            // Collect batch_dossier ids first
+            const batchDossiers = await trx('ia_batch_dossier').select('id').where({ batch_id })
+            const bdIds = batchDossiers.map(r => (r as any).id)
+
+            if (bdIds.length) {
+                // Delete enum item links referencing batch_dossier
+                await trx('ia_batch_dossier_enum_item').whereIn('batch_dossier_id', bdIds).delete()
+                // Delete items
+                await trx('ia_batch_dossier_item').whereIn('batch_dossier_id', bdIds).delete()
+                // Delete batch_dossier
+                await trx('ia_batch_dossier').whereIn('id', bdIds).delete()
+            }
+
+            // Delete jobs
+            await trx('ia_batch_job').where({ batch_id }).delete()
+            // Finally delete the batch
+            const del = await trx('ia_batch').where({ id: batch_id }).delete()
+            return del > 0
+        })
     }
 }
 

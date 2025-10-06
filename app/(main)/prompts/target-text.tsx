@@ -35,19 +35,9 @@ export default function TargetText({ prompt, visualization, apiKeyProvided }: { 
     const textoDescr = prompt.content.editor_label || 'Texto'
 
     const PromptParaCopiar = () => {
-        const [exec, setExec] = useState(undefined as any)
         if (!prompt || !markdown) return ''
-
-        useEffect(() => {
-            const f = async () => {
-                const exec = await promptExecuteBuilder(definition, { textos: [{ numeroDoProcesso: '', descr: prompt.content?.editor_label || 'Texto', slug: slugify(prompt.content?.editor_label || 'texto'), texto: markdown, sigilo: '0' }] })
-                setExec(exec)
-            }
-            f()
-        }, [definition, markdown, prompt])
-
+        const exec = promptExecuteBuilder(definition, { textos: [{ numeroDoProcesso: '', descr: prompt.content?.editor_label || 'Texto', slug: slugify(prompt.content?.editor_label || 'texto'), texto: markdown, sigilo: '0' }] })
         const s: string = exec?.message.map(m => m.role === 'system' ? `# PROMPT DE SISTEMA\n\n${m.content}\n\n# PROMPT` : m.content).join('\n\n')
-
         if (s)
             navigator.clipboard.writeText(s)
 

@@ -370,6 +370,7 @@ export default function LibraryForm({ record }: { record: any }) {
               definition={promptDefinition}
               data={{
                 textos: examples.map((ex, idx) => ({
+                  numeroDoProcesso: '',
                   descr: ex.piece_title || `Exemplo ${idx + 1}`,
                   slug: `exemplo-${idx + 1}`,
                   texto: ex.content_markdown ? `<despacho-decisao>\n${ex.content_markdown}\n</despacho-decisao>` : '',

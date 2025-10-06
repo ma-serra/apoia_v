@@ -19,6 +19,7 @@ import { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google'
 import { OpenAIResponsesProviderOptions } from '@ai-sdk/openai'
 import devLog, { isDev } from '../utils/log'
 import * as Sentry from '@sentry/nextjs'
+import { getLibraryDocumentsForPrompt } from './library'
 
 export async function retrieveFromCache(sha256: string, model: string, prompt: string, attempt: number | null): Promise<IAGenerated | undefined> {
     const cached = await Dao.retrieveIAGeneration({ sha256, model, prompt, attempt })
@@ -132,7 +133,8 @@ export async function streamContent(definition: PromptDefinitionType, data: Prom
     const { model: modelPreSelected } = await getModel({ structuredOutputs: false, overrideModel: definition.model })
     data.textos = clipPieces(modelPreSelected, data.textos)
 
-    const exec = await promptExecuteBuilder(definition, data)
+    const libraryPrompt = await getLibraryDocumentsForPrompt()
+    const exec = promptExecuteBuilder(definition, data, libraryPrompt)
     const messages = exec.message
     const structuredOutputs = exec.params?.structuredOutputs
     const { model, modelRef, apiKeyFromEnv } = await getModel({ structuredOutputs: !!structuredOutputs, overrideModel: definition.model })
@@ -323,7 +325,8 @@ export async function evaluate(definition: PromptDefinitionType, data: PromptDat
 
     const { model } = await getModel()
     await waitForTexts(data)
-    const exec = await promptExecuteBuilder(definition, data)
+    const libraryPrompt = await getLibraryDocumentsForPrompt()
+    const exec = promptExecuteBuilder(definition, data, libraryPrompt)
     const messages = exec.message
     const sha256 = calcSha256(messages)
 

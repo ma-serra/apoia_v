@@ -10,19 +10,10 @@ import { useEffect, useState } from 'react'
 const Frm = new FormHelper(true)
 
 export const PromptParaCopiar = ({ dadosDoProcesso, requests }: { dadosDoProcesso: DadosDoProcessoType, requests: GeneratedContent[] }) => {
-    const [exec, setExec] = useState(undefined as any)
     if (!dadosDoProcesso || dadosDoProcesso.errorMsg) return ''
-
     const request = requests[requests.length - 2]
     const prompt: PromptDefinitionType = request.internalPrompt
-
-    useEffect(() => {
-        const f = async () => {
-            const exec = await promptExecuteBuilder(prompt, request.data)
-            setExec(exec)
-        }
-        f()
-    }, [prompt])
+    const exec = promptExecuteBuilder(prompt, request.data)
 
     const s: string = exec?.message.map(m => m.role === 'system' ? `# PROMPT DE SISTEMA\n\n${m.content}\n\n# PROMPT` : m.content).join('\n\n')
 

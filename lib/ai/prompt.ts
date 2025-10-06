@@ -79,7 +79,7 @@ export async function getPiecesWithContent(dadosDoProcesso: DadosDoProcessoType,
     return pecasComConteudo
 }
 
-export const promptExecuteBuilder = async (definition: PromptDefinitionType, data: PromptDataType): Promise<PromptExecuteType> => {
+export const promptExecuteBuilder = (definition: PromptDefinitionType, data: PromptDataType, libraryPrompt?: string): PromptExecuteType => {
     const message: ModelMessage[] = []
     if (definition.systemPrompt) {
         definition.systemPrompt.split('\n---\n').forEach(part => {
@@ -110,7 +110,6 @@ export const promptExecuteBuilder = async (definition: PromptDefinitionType, dat
     if (definition.format)
         params.format = buildFormatter(definition.format)
 
-    const libraryPrompt = await getLibraryDocumentsForPrompt()
     if (libraryPrompt) {
         const lastSystemIndex = message.map(m => m.role).lastIndexOf('system')
         const insertAt = lastSystemIndex === -1 ? 0 : lastSystemIndex + 1

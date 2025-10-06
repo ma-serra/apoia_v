@@ -8,6 +8,7 @@ import * as Sentry from '@sentry/nextjs';
  * @returns A NextResponse object with a standardized error body.
  */
 export function apiErrorResponse(message: string, status: number) {
+    console.log('API Error:', { message, status });
     return NextResponse.json({ errormsg: message }, { status });
 }
 
@@ -64,11 +65,11 @@ export function withErrorHandler(handler: ApiHandler): ApiHandler {
             // Capture without fixed route tag; request URL already present in scope
             Sentry.captureException(error);
 
-            if (error instanceof ApiError) {
-                return apiErrorResponse(error.message, error.status);
-            }
-            console.error('Unexpected API error:', error);
-            return apiErrorResponse('Internal server error', 500);
+            // if (error instanceof ApiError) {
+            return apiErrorResponse(error.message, error.status || 500);
+            // }
+            // console.error('Unexpected API error:', error);
+            // return apiErrorResponse('Internal server error', 500);
         }
     };
 }

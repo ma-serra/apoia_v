@@ -13,50 +13,57 @@ export async function getLibraryDocumentsForPrompt(): Promise<string> {
     try {
         // Busca todos os documentos da biblioteca do usuário
         const documents: IALibrary[] = await Dao.listLibrary()
-        
+
         // Filtra documentos que não são binários e que têm conteúdo
-        const validDocuments = documents.filter(doc => 
-            doc.content_markdown && 
+        const validDocuments = documents.filter(doc =>
+            doc.content_markdown &&
             doc.kind !== 'ARQUIVO'
         )
-        
+
         // Separa documentos por tipo de inclusão
-        const alwaysInclude = validDocuments.filter(doc => 
+        const alwaysInclude = validDocuments.filter(doc =>
             doc.inclusion === IALibraryInclusion.SIM
         )
-        
-        const contextualDocuments = validDocuments.filter(doc => 
+
+        const contextualDocuments = validDocuments.filter(doc =>
             doc.inclusion === IALibraryInclusion.CONTEXTUAL
         )
-        
-        let result = ''
-        
+
+        let result = `# Biblioteca de Documentos
+O usuário possui uma biblioteca de documentos que podem ser utilizados para enriquecer as respostas. Siga as instruções abaixo para utilizar esses documentos de forma eficaz.`
+
         // Adiciona documentos com inclusão automática
         if (alwaysInclude.length > 0) {
-            result += '# Referências da Biblioteca\n\n'
+            result += '## Referências da Biblioteca\n\n'
             result += 'Os seguintes documentos são referências que devem ser seguidas ao processar esta solicitação:\n\n'
-            
+
             for (const doc of alwaysInclude) {
                 result += `<library id="${doc.id}">\n${doc.content_markdown}\n</library>\n\n`
             }
         }
-        
+
         // Adiciona documentos contextuais
         if (contextualDocuments.length > 0) {
             if (result) result += '\n'
-            
-            result += '# Outros Documentos Disponíveis\n\n'
-            result += 'Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados conforme o contexto da solicitação. '
-            result += 'Sempre que o contexto informado no atributo "context" for compatível com a requisição atual o conteúdo deve ser carregado antes de prosseguir. '
-            result += 'Use a ferramenta "getLibraryDocument" com o ID do documento para obter seu conteúdo completo:\n\n'
-            
+
+            result += `## Outros Documentos Disponíveis
+Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados conforme o contexto da solicitação.
+Sempre que o contexto informado no atributo "context" for compatível com a requisição atual o conteúdo deve ser carregado antes de prosseguir.
+
+Por exemplo, após obter os metadados do processo com getProcessMetadata, analise imediatamente o campo "assuntos" e a "classe" do processo para 
+identificar temas relevantes. Em seguida, verifique na lista de documentos da biblioteca se existe algum documento cujo atributo "context" 
+seja compatível com esses temas. Se houver compatibilidade, carregue automaticamente o(s) documento(s) correspondente(s) usando getLibraryDocument 
+antes de prosseguir com qualquer outra etapa da análise ou geração de resposta.
+
+Lista de documentos disponíveis na biblioteca:\n\n`
+
             for (const doc of contextualDocuments) {
                 const context = doc.context ? ` context="${doc.context}"` : ''
                 result += `<library id="${doc.id}" title="${doc.title}"${context} />\n`
             }
             result += '\n'
         }
-        
+
         return result
     } catch (error) {
         console.error('Error getting library documents for prompt:', error)
@@ -73,19 +80,19 @@ export async function getLibraryDocumentsForPrompt(): Promise<string> {
 export async function getLibraryDocumentFormatted(documentId: number): Promise<string> {
     try {
         const document: IALibrary | undefined = await Dao.getLibraryById(documentId)
-        
+
         if (!document) {
             return `Erro: Documento com ID ${documentId} não encontrado ou sem permissão de acesso.`
         }
-        
+
         if (document.kind === 'ARQUIVO' && document.content_binary) {
             return `Erro: O documento "${document.title}" é um arquivo binário e não pode ser processado como texto.`
         }
-        
+
         if (!document.content_markdown) {
             return `Erro: O documento "${document.title}" não possui conteúdo de texto.`
         }
-        
+
         return `<library id="${document.id}" title="${document.title}">\n${document.content_markdown}\n</library>`
     } catch (error) {
         console.error('Error getting formatted library document:', error)

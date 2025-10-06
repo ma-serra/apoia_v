@@ -238,7 +238,7 @@ export default function LibraryForm({ record }: { record: any }) {
         <Form.Group className="mb-3">
           <Form.Label>Contexto</Form.Label>
           <Form.Control value={data.context || ''} onChange={e => setData({ ...data, context: e.target.value })} />
-          <div className="form-text text-muted">Explique para a IA em que contexto esse documento deve ser automaticamente considerado. Exemplo: &quot;Se for um processo de propriedade industrial.&quot;</div>
+          <div className="form-text text-muted">Explique para a IA em que contexto esse documento deve ser automaticamente considerado. Exemplo: &quot;Processo de propriedade industrial.&quot;</div>
         </Form.Group>
       </div>
 

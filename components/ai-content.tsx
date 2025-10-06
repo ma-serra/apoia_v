@@ -67,6 +67,28 @@ export default function AiContent(params: { definition: PromptDefinitionType, da
             error_message: message
         })
     }
+
+    const reportReady = (text: string, payload: any) => {
+        let json: any = undefined
+        try {
+            json = JSON.parse(text)
+        } catch (e) { }
+        if (params.onReady)
+            params.onReady({
+                raw: text,
+                formated: preprocess(text, params.definition, params.data, complete, visualizationId, params.diffSource).text,
+                json
+            })
+
+        trackAIComplete({
+            kind: payload.kind,
+            model: payload.modelSlug,
+            prompt: payload.promptSlug,
+            dossier_code: payload.dossierCode,
+            bytes: text.length,
+            json: text?.startsWith('{') ? '1' : '0'
+        })
+    }
     const handleClose = async (evaluation_id: number, descr: string | null) => {
         setShow(false)
         if (evaluation_id) setEvaluated(await evaluate(params.definition, params.data, evaluation_id, descr))
@@ -144,14 +166,7 @@ export default function AiContent(params: { definition: PromptDefinitionType, da
                         setCurrent(text);
                     }
                 }
-                trackAIComplete({
-                    kind: payload.kind,
-                    model: payload.modelSlug,
-                    prompt: payload.promptSlug,
-                    dossier_code: payload.dossierCode,
-                    bytes: text.length,
-                    json: text?.startsWith('{') ? '1' : '0'
-                })
+                reportReady(text, payload)
             } catch (error) {
                 console.error('Error fetching stream:', error);
             } finally {
@@ -167,25 +182,7 @@ export default function AiContent(params: { definition: PromptDefinitionType, da
                     if (done) {
                         setComplete(true)
                         const text = Buffer.concat(chunks).toString("utf-8")
-                        let json: any = undefined
-                        try {
-                            json = JSON.parse(text)
-                        } catch (e) { }
-                        if (params.onReady)
-                            params.onReady({
-                                raw: text,
-                                formated: preprocess(text, params.definition, params.data, complete, visualizationId, params.diffSource).text,
-                                json
-                            })
-                        // Evento de conclusão (sucesso)
-                        trackAIComplete({
-                            kind: payload.kind,
-                            model: payload.modelSlug,
-                            prompt: payload.promptSlug,
-                            dossier_code: payload.dossierCode,
-                            bytes: text.length,
-                            json: json ? '1' : '0'
-                        })
+                        reportReady(text, payload)
                         break
                     }
                     chunks.push(value)

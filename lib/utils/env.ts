@@ -37,6 +37,10 @@ enum EnvPublicEnum {
 
     WOOTRIC_ACCOUNT_TOKEN,
     GOOGLE_ANALYTICS_ID,
+
+    MIGRATE_ON_START,
+
+    DISABLE_DOCUMENT_CACHE,
 }
 
 enum EnvPrivateEnum {

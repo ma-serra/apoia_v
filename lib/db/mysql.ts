@@ -802,6 +802,7 @@ export class Dao {
 
     static async updateDocumentContent(document_id: number, content_source_id: number, content: string) {
         if (!knex) return
+        if (envString('DISABLE_DOCUMENT_CACHE') !== '1') return
         await knex('ia_document').update({
             content_source_id,
             content: content?.replace(/\u0000/g, ''), // Remove null characters

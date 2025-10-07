@@ -5,10 +5,11 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, Form } from 'react-bootstrap';
 import ErrorMessage from "@/components/error-message";
+import { envString } from "@/lib/utils/env";
 
 const CredentialsForm = (params) => {
     const [errorMessage, setErrorMessage] = useState('')
-    const [sistema, setSistema] = useState(undefined as string | undefined)
+    const [sistema, setSistema] = useState(params?.systems?.[0] as string | undefined)
     const [matricula, setMatricula] = useState('');
     const [senha, setSenha] = useState('');
     const [processing, setProcessing] = useState(false);
@@ -35,18 +36,18 @@ const CredentialsForm = (params) => {
             <div className="col-lg-6 mx-auto">
                 {
                     errorMessage
-                    ? <p className="alert alert-danger mt-3 mb-4"><ErrorMessage message={errorMessage} /></p>
-                    : <></>
+                        ? <p className="alert alert-danger mt-3 mb-4"><ErrorMessage message={errorMessage} /></p>
+                        : <></>
                 }
-                <h4>Login com credenciais do Eproc/PJ-e</h4>
+                <h5 className="mt-5">Login com credenciais do Eproc</h5>
                 <form onSubmit={(event) => handleSignInWithCredentials(event)}>
                     <Form.Select aria-label="Selecione o Órgão" value={sistema} onChange={e => setSistema(e.target.value)} className='w-100 mt-2 text-center'>
                         <option value={undefined} hidden>Selecione o Órgão</option>
-                        {params.systems.map(system => (<option key={system} value={system}>{system}</option>))}
+                        {params.systems.map((system, idx) => (<option key={system} value={system} selected={system === sistema}>{system}</option>))}
                     </Form.Select>
                     <Form.Control placeholder='Matricula' className='mt-2 w-100 text-center' type='input' value={matricula} onChange={e => setMatricula(e.target.value)}></Form.Control>
                     <Form.Control placeholder='Senha' className='mt-1 w-100 text-center' type='password' value={senha} onChange={e => setSenha(e.target.value)}></Form.Control>
-                    <Button disabled={processing || !sistema || !matricula || !senha} type="submit" variant="primary" className="mt-2 w-100">Entrar</Button>
+                    <Button disabled={processing || !sistema || !matricula || !senha} type="submit" variant="info" className="mt-2 w-100">Entrar</Button>
                 </form>
             </div>
         </div>

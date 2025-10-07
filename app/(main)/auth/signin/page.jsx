@@ -36,17 +36,18 @@ const Signin = async ({ searchParams }) => {
                     <Image src="/apoia-logo-texto-transp.png" width={48 * 1102 / 478} height={48} alt="Apoia Logo" className="mb-2" />
                 </div>
 
-                {(!otherProviders || enabledSystems.length > 0) && providers &&
-                    providers.filter(provider => provider.name === "Credentials").map(provider => (
-                        <CredentialsForm key={provider.name} systems={enabledSystems} />
-                    ))}
-
                 <div className="text-center mt-3">
                     {providers &&
                         providers.filter(provider => provider.name !== "Credentials").map(provider =>
                             <Provider key={provider.id} id={provider.id} name={provider.name} />
                         )}
                 </div>
+
+                {(!otherProviders || enabledSystems.length > 0) && providers &&
+                    providers.filter(provider => provider.name === "Credentials").map(provider => (
+                        <CredentialsForm key={provider.name} systems={enabledSystems} />
+                    ))}
+
             </div >
 
             {Version()}

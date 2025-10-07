@@ -79,14 +79,6 @@ if (envString('SYSTEMS')) {
       let email = credentials?.email
       let password = credentials?.password
 
-      if (envString('NEXTAUTH_REPLACE_EMAIL_AND_PASSWORD')) {
-        const a = Buffer.from(envString('NEXTAUTH_REPLACE_EMAIL_AND_PASSWORD'), 'base64').toString('utf-8').split(",")
-        if (a[0] === email && a[1] === password) {
-          email = a[2]
-          password = a[3]
-        }
-      }
-
       const res = await fetch(
         `${envString('NEXTAUTH_URL_INTERNAL') as string}/api/login`,
         {

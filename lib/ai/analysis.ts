@@ -188,7 +188,7 @@ export async function analyze(batchName: string | undefined, dossierNumber: stri
 
         if (batchName) {
             const user = await pUser
-            const systemCode = user?.image?.system || 'PDPJ'
+            const systemCode = user?.system || 'PDPJ'
             const systemId = await Dao.assertSystemId(systemCode)
             const textosParaClipagem = JSON.parse(JSON.stringify(pecasComConteudo))
             const textosClipados = clipPieces(model, textosParaClipagem)

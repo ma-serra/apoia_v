@@ -14,7 +14,7 @@ async function POST_HANDLER(request: Request) {
         throw new ApiError('Usuário ou senha inválidos', 401)
 
     const password = encrypt(body.password)
-    const resp: any = { name: body.email, email: body.email, image: { password, system: body.system } }
+    const resp: any = { name: body.email, email: body.email, encryptedPassword: password, system: body.system }
     return NextResponse.json(resp, { status: 200 });
 }
 

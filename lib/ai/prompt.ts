@@ -5,6 +5,7 @@ import { buildFormatter } from "@/lib/ai/format"
 import { DadosDoProcessoType } from "@/lib/proc/process-types"
 import { fixPromptForAutoJson, promptJsonSchemaFromPromptMarkdown } from "./auto-json"
 import { formatDateDDMMYYYY } from "../utils/date"
+import _sistema from '@/prompts/_sistema.md'
 
 export const formatText = (txt: TextoType, limit?: number) => {
     let s: string = txt.descr
@@ -81,6 +82,8 @@ export async function getPiecesWithContent(dadosDoProcesso: DadosDoProcessoType,
 
 export const promptExecuteBuilder = (definition: PromptDefinitionType, data: PromptDataType, libraryPrompt?: string): PromptExecuteType => {
     const message: ModelMessage[] = []
+    message.push({ role: 'system', content: applyTextsAndVariables(_sistema, data, definition.jsonSchema, definition.template) })
+
     if (definition.systemPrompt) {
         definition.systemPrompt.split('\n---\n').forEach(part => {
             message.push({ role: 'system', content: applyTextsAndVariables(part, data, definition.jsonSchema, definition.template) })

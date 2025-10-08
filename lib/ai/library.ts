@@ -29,16 +29,15 @@ export async function getLibraryDocumentsForPrompt(): Promise<string> {
             doc.inclusion === IALibraryInclusion.CONTEXTUAL
         )
 
-        let result = `# Biblioteca de Documentos
-O usuário possui uma biblioteca de documentos que podem ser utilizados para enriquecer as respostas. Siga as instruções abaixo para utilizar esses documentos de forma eficaz.`
+        let result = `# Biblioteca de Documentos do Usuário \n\n`
 
         // Adiciona documentos com inclusão automática
         if (alwaysInclude.length > 0) {
             result += '## Referências da Biblioteca\n\n'
-            result += 'Os seguintes documentos são referências que devem ser seguidas ao processar esta solicitação:\n\n'
+            result += 'Os seguintes documentos devem ser considerados:\n\n'
 
             for (const doc of alwaysInclude) {
-                result += `<library id="${doc.id}">\n${doc.content_markdown}\n</library>\n\n`
+                result += `<library-document id="${doc.id}">\n${doc.content_markdown}\n</library-document>\n\n`
             }
         }
 
@@ -47,19 +46,11 @@ O usuário possui uma biblioteca de documentos que podem ser utilizados para enr
             if (result) result += '\n'
 
             result += `## Outros Documentos Disponíveis
-Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados conforme o contexto da solicitação.
-Sempre que o contexto informado no atributo "context" for compatível com a requisição atual o conteúdo deve ser carregado antes de prosseguir.
-
-Por exemplo, após obter os metadados do processo com getProcessMetadata, analise imediatamente o campo "assuntos" e a "classe" do processo para 
-identificar temas relevantes. Em seguida, verifique na lista de documentos da biblioteca se existe algum documento cujo atributo "context" 
-seja compatível com esses temas. Se houver compatibilidade, carregue automaticamente o(s) documento(s) correspondente(s) usando getLibraryDocument 
-antes de prosseguir com qualquer outra etapa da análise ou geração de resposta.
-
-Lista de documentos disponíveis na biblioteca:\n\n`
+Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados conforme o contexto da solicitação:\n\n`
 
             for (const doc of contextualDocuments) {
                 const context = doc.context ? ` context="${doc.context}"` : ''
-                result += `<library id="${doc.id}" title="${doc.title}"${context} />\n`
+                result += `<library-document id="${doc.id}" title="${doc.title}"${context} />\n\n`
             }
             result += '\n'
         }

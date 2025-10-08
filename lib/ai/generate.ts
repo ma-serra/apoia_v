@@ -20,6 +20,7 @@ import { OpenAIResponsesProviderOptions } from '@ai-sdk/openai'
 import devLog, { isDev } from '../utils/log'
 import * as Sentry from '@sentry/nextjs'
 import { getLibraryDocumentsForPrompt } from './library'
+import { getTools } from './tools'
 
 export async function retrieveFromCache(sha256: string, model: string, prompt: string, attempt: number | null): Promise<IAGenerated | undefined> {
     const cached = await Dao.retrieveIAGeneration({ sha256, model, prompt, attempt })
@@ -56,13 +57,16 @@ function writeResponseToFile(kind: string, messages: ModelMessage[], text: strin
     if (envString('NODE_ENV') === 'development' && path) {
         const fs = require('fs')
         const currentDate = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').split('.')[0]
-        fs.writeFileSync(`${path}/${currentDate}-${kind}.txt`, `${messages[0].content}${messages[1]?.content ? `\n\n${messages[1].content}` : ''}\n\n---\n\n${text}`)
+        let s = ''
+        for (const m of messages) s += `${m.role === 'system' ? '# SYSTEM PROMPT' : m.role === 'user' ? '# PROMPT' : `# ROLE: ${m.role}`}\n\n${m.content}\n\n`
+        s += `\n\n---\n\n${text}`
+        fs.writeFileSync(`${path}/${currentDate}-${kind}.txt`, s)
     }
 }
 
-export async function generateContent(definition: PromptDefinitionType, data: PromptDataType): Promise<IAGenerated> {
+export async function generateContent(definition: PromptDefinitionType, data: PromptDataType, tools: Record<string, any>): Promise<IAGenerated> {
     const results: PromptExecutionResultsType = {}
-    const ret = await streamContent(definition, data, results)
+    const ret = await streamContent(definition, data, results, undefined, tools)
     const stream = ret.textStream ? await ret.textStream : ret.objectStream ? await ret.objectStream : ret.cached ? ret.cached : undefined
 
     let text: string
@@ -110,7 +114,7 @@ export type PromptReturnType = {
     objectStream?: Promise<StreamObjectResult<DeepPartial<any>, any, never>>
 }
 
-export async function streamContent(definition: PromptDefinitionType, data: PromptDataType, results?: PromptExecutionResultsType, additionalInformation?: PromptAdditionalInformationType):
+export async function streamContent(definition: PromptDefinitionType, data: PromptDataType, results?: PromptExecutionResultsType, additionalInformation?: PromptAdditionalInformationType, tools?: Record<string, any>):
     Promise<PromptReturnType> {
     // const user = await getCurrentUser()
     // if (!user) return Response.json({ errormsg: 'Usuário não autenticado' }, { status: 401 })
@@ -164,7 +168,7 @@ export async function streamContent(definition: PromptDefinitionType, data: Prom
     // writeResponseToFile(definition, messages, "antes de executar")
     // if (1 == 1) throw new Error('Interrupted')
 
-    return generateAndStreamContent(model, structuredOutputs, definition?.cacheControl, definition?.kind, modelRef, messages, sha256, additionalInformation, results, attempt, apiKeyFromEnv)
+    return generateAndStreamContent(model, structuredOutputs, definition?.cacheControl, definition?.kind, modelRef, messages, sha256, additionalInformation, results, attempt, apiKeyFromEnv, tools)
 }
 
 export async function generateAndStreamContent(model: string, structuredOutputs: any, cacheControl: number | boolean, kind: string, modelRef: LanguageModel, messages: ModelMessage[], sha256: string, additionalInformation: PromptAdditionalInformationType, results?: PromptExecutionResultsType, attempt?: number | null, apiKeyFromEnv?: boolean, tools?: Record<string, any>):
@@ -173,6 +177,8 @@ export async function generateAndStreamContent(model: string, structuredOutputs:
     const user = await pUser
     const user_id = await Dao.assertIAUserId(user.preferredUsername || user.name)
     const court_id = await assertCourtId(user)
+
+    console.log('tools:', Object.keys(tools || {}))
 
     // --- PDF processing & logging sanitization ---
     const modelSupportsPdf = () => {

@@ -126,7 +126,9 @@ export const obterDadosDoProcesso = async ({ numeroDoProcesso, pUser, idDaPeca, 
         // localiza a tramitação que contém a peça solicitada
         if (apenasPecasEspecificas.length > 0) {
             dadosDoProcesso = arrayDadosDoProcesso.find(d => d.pecas.map(p => p.id).includes(apenasPecasEspecificas[0]))
-            if (!dadosDoProcesso) throw new Error(`Peças específicas ${apenasPecasEspecificas.join(', ')} não encontradas no processo ${numeroDoProcesso}`)
+            if (!dadosDoProcesso) {
+                throw new Error(`Peças específicas ${apenasPecasEspecificas.join(', ')} não encontradas no processo ${numeroDoProcesso}`)
+            }
         }
 
         pecas = [...dadosDoProcesso.pecas]

@@ -34,10 +34,10 @@ export async function getLibraryDocumentsForPrompt(): Promise<string> {
         // Adiciona documentos com inclusão automática
         if (alwaysInclude.length > 0) {
             result += '## Referências da Biblioteca\n\n'
-            result += 'Os seguintes documentos devem ser considerados:\n\n'
+            result += 'Os seguintes documentos são referência obrigatória para execução da tarefa:\n\n'
 
             for (const doc of alwaysInclude) {
-                result += `<library-document id="${doc.id}">\n${doc.content_markdown}\n</library-document>\n\n`
+                result += `<library-document id="${doc.id}" title="${doc.title}">\n${doc.content_markdown}\n</library-document>\n\n`
             }
         }
 
@@ -61,6 +61,56 @@ Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados
         return ''
     }
 }
+
+export type LibraryDocumentsType = {
+    included: string,
+    available: string
+}
+
+export async function getLibraryDocuments(): Promise<LibraryDocumentsType> {
+    try {
+        // Busca todos os documentos da biblioteca do usuário
+        const documents: IALibrary[] = await Dao.listLibrary()
+
+        // Filtra documentos que não são binários e que têm conteúdo
+        const validDocuments = documents.filter(doc =>
+            doc.content_markdown &&
+            doc.kind !== 'ARQUIVO'
+        )
+
+        // Separa documentos por tipo de inclusão
+        const alwaysInclude = validDocuments.filter(doc =>
+            doc.inclusion === IALibraryInclusion.SIM
+        )
+
+        const contextualDocuments = validDocuments.filter(doc =>
+            doc.inclusion === IALibraryInclusion.CONTEXTUAL
+        )
+
+        // Adiciona documentos com inclusão automática
+        let included = ``
+        if (alwaysInclude.length > 0) {
+            for (const doc of alwaysInclude) {
+                included += `<library-document id="${doc.id}">\n${doc.content_markdown}\n</library-document>\n\n`
+            }
+        }
+
+        // Adiciona documentos contextuais
+        let available = ``
+        if (contextualDocuments.length > 0) {
+            for (const doc of contextualDocuments) {
+                const context = doc.context ? ` context="${doc.context}"` : ''
+                available += `<library-document id="${doc.id}" title="${doc.title}"${context} />\n\n`
+            }
+        }
+
+        return { included, available }
+    } catch (error) {
+        console.error('Error getting library documents for prompt:', error)
+        return { included: '', available: '' }
+    }
+}
+
 
 /**
  * Formata um documento específico da biblioteca para inclusão em um prompt.

@@ -5,7 +5,7 @@ import { buildFormatter } from "@/lib/ai/format"
 import { DadosDoProcessoType } from "@/lib/proc/process-types"
 import { fixPromptForAutoJson, promptJsonSchemaFromPromptMarkdown } from "./auto-json"
 import { formatDateDDMMYYYY } from "../utils/date"
-import _sistema from '@/prompts/_sistema.md'
+import { LibraryDocumentsType } from "./library"
 
 export const formatText = (txt: TextoType, limit?: number) => {
     let s: string = txt.descr
@@ -13,7 +13,7 @@ export const formatText = (txt: TextoType, limit?: number) => {
     return s
 }
 
-export const applyTextsAndVariables = (text: string, data: PromptDataType, jsonSchema?: string, template?: string): string => {
+export const applyTextsAndVariables = (text: string, data: PromptDataType, jsonSchema?: string, template?: string, libraryPrompt?: { available: string, included: string }): string => {
     if (!text) return ''
 
     const allTexts = `${data.textos.reduce((acc, txt) => acc + formatText(txt), '')}`
@@ -33,6 +33,10 @@ export const applyTextsAndVariables = (text: string, data: PromptDataType, jsonS
     text = text.replace('{{jsonSchema}}', jsonSchema || 'JSON Schema não definido')
 
     text = text.replace('{{textos}}', allTexts)
+
+    text = text.replace('{{bibliotecaIncluida}}', libraryPrompt?.included || 'Não existem documentos incluídos.')
+
+    text = text.replace('{{bibliotecaDisponivel}}', libraryPrompt?.available || 'Não existem documentos disponíveis na biblioteca.')
 
     text = text.replace('{{numeroDoProcesso}}', data.numeroDoProcesso || 'Número do processo não definido')
 
@@ -80,13 +84,17 @@ export async function getPiecesWithContent(dadosDoProcesso: DadosDoProcessoType,
     return pecasComConteudo
 }
 
-export const promptExecuteBuilder = (definition: PromptDefinitionType, data: PromptDataType, libraryPrompt?: string): PromptExecuteType => {
+export const promptExecuteBuilder = (definition: PromptDefinitionType, data: PromptDataType, libraryPrompt?: LibraryDocumentsType): PromptExecuteType => {
     const message: ModelMessage[] = []
-    message.push({ role: 'system', content: applyTextsAndVariables(_sistema, data, definition.jsonSchema, definition.template) })
+    if (definition?.kind !== 'chat' && definition?.kind !== 'chat_standalone') {
+        _sistema.split('\n---\n').forEach(part => {
+            message.push({ role: 'system', content: applyTextsAndVariables(part, data, definition.jsonSchema, definition.template, libraryPrompt) })
+        })
+    }
 
     if (definition.systemPrompt) {
         definition.systemPrompt.split('\n---\n').forEach(part => {
-            message.push({ role: 'system', content: applyTextsAndVariables(part, data, definition.jsonSchema, definition.template) })
+            message.push({ role: 'system', content: applyTextsAndVariables(part, data, definition.jsonSchema, definition.template, libraryPrompt) })
         })
     }
 
@@ -113,11 +121,6 @@ export const promptExecuteBuilder = (definition: PromptDefinitionType, data: Pro
     if (definition.format)
         params.format = buildFormatter(definition.format)
 
-    if (libraryPrompt) {
-        const lastSystemIndex = message.map(m => m.role).lastIndexOf('system')
-        const insertAt = lastSystemIndex === -1 ? 0 : lastSystemIndex + 1
-        message.splice(insertAt, 0, { role: 'system', content: libraryPrompt })
-    }
     return { message, params, fixedPrompt: promptContent }
 }
 
@@ -191,6 +194,7 @@ export function getInternalPrompt(slug: string): PromptDefinitionType {
     return internalPrompts[getPromptIdentifier(slug)]
 }
 
+import _sistema from '@/prompts/_sistema.md'
 import ementa from '@/prompts/ementa.md'
 import int_testar from "@/prompts/int-testar.md"
 import int_gerar_perguntas from "@/prompts/int-gerar-perguntas.md"
@@ -229,7 +233,6 @@ import prev_bi_sentenca_laudo_favoravel from '@/prompts/prev-bi-sentenca-laudo-f
 import prev_bi_sentenca_laudo_desfavoravel from '@/prompts/prev-bi-sentenca-laudo-desfavoravel.md'
 import linguagem_simples from '@/prompts/linguagem-simples.md'
 import relatorio_de_apelacao_e_triagem from '@/prompts/relatorio-de-apelacao-e-triagem.md'
-import { getLibraryDocumentsForPrompt } from "./library"
 
 // Enum for the different types of prompts
 export const internalPrompts = {

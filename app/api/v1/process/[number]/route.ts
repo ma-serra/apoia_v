@@ -36,6 +36,7 @@ async function GET_HANDLER(
   props: { params: { number: string, piece: string } }
 ) {
   const { params } = props;
+  const number = (await params).number
   const pUser = assertApiUser()
   const user = await pUser
 
@@ -43,7 +44,7 @@ async function GET_HANDLER(
   const kind = url.searchParams.get('kind')
   const obterConteudo = url.searchParams.get('selectedPiecesContent') === 'true'
   const dadosDoProcesso = await obterDadosDoProcesso2({
-    numeroDoProcesso: params.number, pUser,
+    numeroDoProcesso: number, pUser,
     conteudoDasPecasSelecionadas: obterConteudo ? CargaDeConteudoEnum.SINCRONO : CargaDeConteudoEnum.NAO
   })
   return NextResponse.json(dadosDoProcesso)

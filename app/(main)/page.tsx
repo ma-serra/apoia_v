@@ -1,6 +1,6 @@
 import { Container, Row, Col, Card, CardBody, CardTitle, CardText } from 'react-bootstrap'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faList, faFileText, faDatabase, faAlignJustify, faComments, faDollar, faGavel, faUserSecret, faBoxArchive } from '@fortawesome/free-solid-svg-icons'
+import { faList, faFileText, faDatabase, faAlignJustify, faComments, faDollar, faGavel, faUserSecret, faBoxArchive, faBook, faBookAtlas, faBookJournalWhills, faBookOpen } from '@fortawesome/free-solid-svg-icons'
 import { faFileLines } from '@fortawesome/free-regular-svg-icons'
 import Link from 'next/link'
 import ApiKeyMissing from '@/components/api-key-missing'
@@ -72,6 +72,13 @@ export default async function HomePage() {
             description: "Anonimize textos removendo dados sensíveis",
             href: "/anonym",
             color: "text-dark"
+        },
+        {
+            icon: faBookOpen,
+            title: "Biblioteca",
+            description: "Acesse sua coleção de documentos e recursos jurídicos",
+            href: "/library",
+            color: "text-library"
         },
         {
             icon: faBoxArchive,

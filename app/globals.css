@@ -431,3 +431,8 @@
         color: #8a4949 !important;
         /* Use !important if needed to override Bootstrap defaults */
     }
+    
+    .text-library {
+        color: #0EA5E9 !important;
+        /* Use !important if needed to override Bootstrap defaults */
+    }

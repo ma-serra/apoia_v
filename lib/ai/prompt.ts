@@ -34,9 +34,9 @@ export const applyTextsAndVariables = (text: string, data: PromptDataType, jsonS
 
     text = text.replace('{{textos}}', allTexts)
 
-    text = text.replace('{{bibliotecaIncluida}}', libraryPrompt?.included || 'Não existem documentos incluídos.')
+    text = text.replace('{{bibliotecaIncluida}}', libraryPrompt?.included || 'O usuário não selecionou nenhum documento.')
 
-    text = text.replace('{{bibliotecaDisponivel}}', libraryPrompt?.available || 'Não existem documentos disponíveis na biblioteca.')
+    text = text.replace('{{bibliotecaDisponivel}}', libraryPrompt?.available || 'Não existem documentos disponíveis para serem incluídos em função do contexto.')
 
     text = text.replace('{{numeroDoProcesso}}', data.numeroDoProcesso || 'Número do processo não definido')
 

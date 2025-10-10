@@ -6,7 +6,7 @@ import { slugify } from "../utils/utils"
 import { getInternalPrompt } from "./prompt"
 import { GeneratedContent, PromptDataType, PromptDefinitionType, TextoType } from "./prompt-types"
 
-export const buildRequests = (prompt: IAPrompt, numeroDoProcesso: string, selectedPieces: PecaType[], contents?: { [key: number]: string }): GeneratedContent[] => {
+export const buildRequests = (prompt: IAPrompt, documentosDaBiblioteca: string[] | undefined, numeroDoProcesso: string, selectedPieces: PecaType[], contents?: { [key: number]: string }): GeneratedContent[] => {
     const requestArray: GeneratedContent[] = []
     const pecasComConteudo: TextoType[] = selectedPieces.map(peca => ({ id: peca.id, numeroDoProcesso: peca.numeroDoProcesso, event: peca.numeroDoEvento, idOrigem: peca.idOrigem, label: peca.rotulo, descr: peca.descr, slug: slugify(peca.descr), texto: peca.conteudo || contents?.[peca.id], sigilo: peca.sigilo }))
     let produtos: InfoDeProduto[] = []
@@ -23,14 +23,14 @@ export const buildRequests = (prompt: IAPrompt, numeroDoProcesso: string, select
                 // Add resume for each piece
                 for (const peca of pecasComConteudo) {
                     const definition = getInternalPrompt(`resumo-${peca.slug}`)
-                    const data: PromptDataType = { textos: [peca] }
+                    const data: PromptDataType = { textos: [peca], documentosDaBiblioteca }
                     requestArray.push({ documentCode: peca.id || null, documentDescr: peca.descr, documentLocation: peca.event, documentLink: `/api/v1/process/${peca.numeroDoProcesso || numeroDoProcesso}/piece/${peca.id}/binary`, data, title: peca.descr, produto: ip.produto, promptSlug: definition.kind, internalPrompt: definition })
                 }
                 continue
             }
             const def = getInternalPrompt(ip.prompt)
             if (!def) continue
-            const data: PromptDataType = { numeroDoProcesso, textos: pecasComConteudo }
+            const data: PromptDataType = { numeroDoProcesso, textos: pecasComConteudo, documentosDaBiblioteca }
             requestArray.push({ documentCode: null, documentDescr: null, data, title: ip.titulo, produto: ip.produto, promptSlug: def.kind, internalPrompt: def })
         }
     } else {
@@ -39,7 +39,8 @@ export const buildRequests = (prompt: IAPrompt, numeroDoProcesso: string, select
                 const definition = getInternalPrompt(`resumo-${peca.slug}`)
                 const data: PromptDataType = {
                     numeroDoProcesso,
-                    textos: [peca]
+                    textos: [peca],
+                    documentosDaBiblioteca
                 }
                 requestArray.push({ documentCode: peca.id || null, documentDescr: peca.descr, documentLocation: peca.event, documentLink: `/api/v1/process/${peca.numeroDoProcesso || numeroDoProcesso}/piece/${peca.id}/binary`, data, title: peca.descr, produto: P.RESUMO_PECA, promptSlug: definition.kind, internalPrompt: definition })
             }
@@ -58,7 +59,8 @@ export const buildRequests = (prompt: IAPrompt, numeroDoProcesso: string, select
             documentDescr: null,
             data: {
                 numeroDoProcesso,
-                textos: pecasComConteudo
+                textos: pecasComConteudo,
+                documentosDaBiblioteca
             },
             produto: P.RESUMO,
             promptSlug: slugify(prompt.name),
@@ -70,7 +72,7 @@ export const buildRequests = (prompt: IAPrompt, numeroDoProcesso: string, select
 
         // Basic chat as last item
         const definition2 = getInternalPrompt(`chat`)
-        const data: PromptDataType = { textos: pecasComConteudo }
+        const data: PromptDataType = { textos: pecasComConteudo, documentosDaBiblioteca }
         requestArray.push({ documentCode: null, documentDescr: null, data, title: 'Chat', produto: P.CHAT, promptSlug: definition2.kind, internalPrompt: definition2 })
     }
 

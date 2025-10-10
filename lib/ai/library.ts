@@ -67,24 +67,23 @@ export type LibraryDocumentsType = {
     available: string
 }
 
-export async function getLibraryDocuments(): Promise<LibraryDocumentsType> {
+export async function getLibraryDocuments(ids: string[] | undefined): Promise<LibraryDocumentsType> {
     try {
+        const numericIds = ids ? ids.map(id => parseInt(id)).filter(id => !isNaN(id)) : []
+
         // Busca todos os documentos da biblioteca do usuário
         const documents: IALibrary[] = await Dao.listLibrary()
 
-        // Filtra documentos que não são binários e que têm conteúdo
-        const validDocuments = documents.filter(doc =>
-            doc.content_markdown &&
-            doc.kind !== 'ARQUIVO'
-        )
+        // Filtra documentos que têm conteúdo
+        const validDocuments = documents.filter(doc => doc.content_markdown)
 
         // Separa documentos por tipo de inclusão
         const alwaysInclude = validDocuments.filter(doc =>
-            doc.inclusion === IALibraryInclusion.SIM
+            doc.inclusion === IALibraryInclusion.SIM && ids === undefined || numericIds.includes(doc.id)
         )
 
         const contextualDocuments = validDocuments.filter(doc =>
-            doc.inclusion === IALibraryInclusion.CONTEXTUAL
+            doc.inclusion === IALibraryInclusion.CONTEXTUAL && !numericIds.includes(doc.id)
         )
 
         // Adiciona documentos com inclusão automática

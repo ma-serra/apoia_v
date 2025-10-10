@@ -4,11 +4,8 @@ import { IALibrary, IALibraryInclusion, IAPrompt } from "@/lib/db/mysql-types";
 import { DadosDoProcessoType, PecaType, TEXTO_PECA_COM_ERRO } from "@/lib/proc/process-types";
 import { ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { InfoDeProduto, P, PieceStrategy, selecionarPecasPorPadraoComFase, T, TipoDeSinteseMap } from "@/lib/proc/combinacoes";
-import { infoDeProduto } from "@/lib/proc/info-de-produto";
-import { GeneratedContent, PromptDataType, PromptDefinitionType, TextoType } from "@/lib/ai/prompt-types";
-import { slugify } from "@/lib/utils/utils";
-import { getInternalPrompt } from "@/lib/ai/prompt";
+import { PieceStrategy, selecionarPecasPorPadraoComFase, T, TipoDeSinteseMap } from "@/lib/proc/combinacoes";
+import { GeneratedContent } from "@/lib/ai/prompt-types";
 import { ProgressBar } from "react-bootstrap";
 import Print from "@/components/slots/print";
 import Subtitulo from "@/components/slots/subtitulo";
@@ -21,16 +18,17 @@ import { buildFooterFromPieces } from "@/lib/utils/footer";
 import { nivelDeSigiloPermitido } from "@/lib/proc/sigilo";
 import { formatDateTime } from "@/lib/utils/date";
 import { buildRequests } from "@/lib/ai/build-requests";
+import { devLog } from "@/lib/utils/log";
 
-export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent, setPieceContent, apiKeyProvided, model, allLibraryDocuments, children }: { 
-    prompt: IAPrompt, 
-    dadosDoProcesso: DadosDoProcessoType, 
-    pieceContent: any, 
-    setPieceContent: (pieceContent: any) => void, 
-    apiKeyProvided: boolean, 
-    model?: string, 
+export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent, setPieceContent, apiKeyProvided, model, allLibraryDocuments, children }: {
+    prompt: IAPrompt,
+    dadosDoProcesso: DadosDoProcessoType,
+    pieceContent: any,
+    setPieceContent: (pieceContent: any) => void,
+    apiKeyProvided: boolean,
+    model?: string,
     allLibraryDocuments?: IALibrary[],
-    children?: ReactNode 
+    children?: ReactNode
 }) {
     const [selectedPieces, setSelectedPieces] = useState<PecaType[] | null>(null)
     const [defaultPieceIds, setDefaultPieceIds] = useState<string[] | null>(null)
@@ -99,7 +97,7 @@ export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent,
         }
         setPieceContent(contents)
         setLoadingPiecesProgress(-1)
-        setRequests(buildRequests(prompt, dadosDoProcesso.numeroDoProcesso, selectedPieces, contents))
+        setRequests(buildRequests(prompt, selectedLibraryDocuments.map(d => d.id.toString()), dadosDoProcesso.numeroDoProcesso, selectedPieces, contents))
     }
 
     const LoadingPieces = () => {
@@ -139,29 +137,22 @@ export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent,
 
     useEffect(() => {
         if (!allLibraryDocuments || !Array.isArray(allLibraryDocuments) || allLibraryDocuments.length === 0) return
-        
+
         // Compute automatic default selection for baseline (documents with inclusion === SIM)
         const autoDefault = allLibraryDocuments.filter(d => d.inclusion === IALibraryInclusion.SIM)
         setDefaultLibraryDocumentIds(autoDefault.map(d => d.id.toString()))
-        
-        // If URL has explicit 'library' numbers (1-based), prefer them over automatic selection
+
+        // If URL has explicit 'library' IDs (hyphen-separated), prefer them over automatic selection
         const libraryParam = searchParams.get('library')
-        if (libraryParam) {
-            const nums = libraryParam.split(/[,-]/).map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n >= 1)
-            if (nums.length) {
-                const ids: string[] = nums
-                    .map(n => {
-                        const idx = n - 1
-                        return (idx >= 0 && idx < allLibraryDocuments.length) ? allLibraryDocuments[idx].id.toString() : null
-                    })
-                    .filter((v): v is string => !!v)
-                const uniqueIds = Array.from(new Set(ids))
-                const sel = allLibraryDocuments.filter(d => uniqueIds.includes(d.id.toString()))
-                setSelectedLibraryDocuments(sel)
-                return
-            }
+
+        if (libraryParam !== null) {
+            const ids = (libraryParam || '').split(/[,-]/).map(s => s.trim()).filter(id => id)
+            const uniqueIds = Array.from(new Set(ids))
+            const sel = allLibraryDocuments.filter(d => uniqueIds.includes(d.id.toString()))
+            setSelectedLibraryDocuments(sel)
+            return
         }
-        
+
         // Always set the auto default (either autoDefault or empty array if no documents with inclusion=SIM)
         setSelectedLibraryDocuments(autoDefault)
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,14 +176,14 @@ export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent,
         <Subtitulo dadosDoProcesso={dadosDoProcesso} />
         {children}
         {allLibraryDocuments && Array.isArray(allLibraryDocuments) && allLibraryDocuments.length > 0 && selectedLibraryDocuments !== null && <>
-            <ChooseLibrary 
-                allDocuments={allLibraryDocuments} 
-                selectedDocuments={selectedLibraryDocuments} 
-                onSave={(documentIds) => { setRequests([]); changeSelectedLibraryDocuments(documentIds) }} 
-                onStartEditing={() => { setChoosingLibrary(true) }} 
-                onEndEditing={() => setChoosingLibrary(false)} 
-                readyToStartAI={readyToStartAI} 
-                baselineDefaultIds={defaultLibraryDocumentIds || []} 
+            <ChooseLibrary
+                allDocuments={allLibraryDocuments}
+                selectedDocuments={selectedLibraryDocuments}
+                onSave={(documentIds) => { setRequests([]); changeSelectedLibraryDocuments(documentIds) }}
+                onStartEditing={() => { setChoosingLibrary(true) }}
+                onEndEditing={() => setChoosingLibrary(false)}
+                readyToStartAI={readyToStartAI}
+                baselineDefaultIds={defaultLibraryDocumentIds || []}
             />
         </>}
         {selectedPieces && <>

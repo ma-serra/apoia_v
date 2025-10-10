@@ -13,6 +13,7 @@ import { buildFooter } from '../utils/footer'
 import { clipPieces } from './clip-pieces'
 import { buildRequests } from './build-requests'
 import devLog from '../utils/log'
+import { getTools } from './tools'
 
 export async function summarize(dossierNumber: string, pieceNumber: string): Promise<{ dossierData: any, generatedContent: GeneratedContent }> {
     const pUser = assertCurrentUser()
@@ -35,7 +36,7 @@ export async function summarize(dossierNumber: string, pieceNumber: string): Pro
     }
 
     // Retrieve from cache or generate
-    req.result = generateContent(definition, data)
+    req.result = generateContent(definition, data, getTools(pUser))
     const result = await req.result as IAGenerated
     req.generated = result.generation
     req.id = result.id
@@ -149,7 +150,7 @@ export async function analyze(batchName: string | undefined, dossierNumber: stri
 
         let requests: GeneratedContent[]
         if (isNumericKind) {
-            requests = buildRequests(promptFromDB, dossierNumber, dadosDoProcesso.pecasSelecionadas).filter(r => r && r.promptSlug !== 'chat')
+            requests = buildRequests(promptFromDB, undefined, dossierNumber, dadosDoProcesso.pecasSelecionadas).filter(r => r && r.promptSlug !== 'chat')
 
             // Acrescenta o Plugins conforme o conteúdo do prompt
             for (const req of requests) {
@@ -171,7 +172,7 @@ export async function analyze(batchName: string | undefined, dossierNumber: stri
 
         // Retrieve from cache or generate
         for (const req of requests) {
-            req.result = generateContent(req.internalPrompt, req.data)
+            req.result = generateContent(req.internalPrompt, req.data, getTools(pUser))
         }
 
         let model: string | undefined = undefined

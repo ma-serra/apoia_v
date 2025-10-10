@@ -44,8 +44,9 @@ export type TextoType = {
     sigilo: string
 }
 export type PromptDataType = { 
-    numeroDoProcesso?: string, 
-    textos: TextoType[] 
+    numeroDoProcesso?: string,
+    textos: TextoType[],
+    documentosDaBiblioteca?: string[]
 }
 
 // Tipo de dados que podem ser passados para a execução de um prompt

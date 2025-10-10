@@ -36,7 +36,7 @@ function ChooseLibraryForm({ allDocuments, selectedDocuments, onSave, onClose, r
                     <TableRecords records={allDocuments} spec="ChooseLibrary" options={{}} pageSize={10} selectedIds={selectedIds} onSelectdIdsChanged={onSelectedIdsChanged}>
                         <div className="col col-auto mb-0">
                             {alteredDocuments
-                                ? <Button onClick={() => onSave(alteredDocuments ? selectedIds : [])} variant="primary" disabled={selectedIds.length === 0}>{readyToStartAI ? <><FontAwesomeIcon icon={faRotateRight} className="me-2" />Salvar Alterações e Refazer</> : <><FontAwesomeIcon icon={faCheck} className="me-1" />OK</>}</Button>
+                                ? <Button onClick={() => onSave(alteredDocuments ? selectedIds : [])} variant="primary">{readyToStartAI ? <><FontAwesomeIcon icon={faRotateRight} className="me-2" />Salvar Alterações e Refazer</> : <><FontAwesomeIcon icon={faCheck} className="me-1" />OK</>}</Button>
                                 : <Button onClick={() => onClose()} variant="secondary"><FontAwesomeIcon icon={faClose} className="me-1" />Fechar</Button>
                             }
                         </div>
@@ -69,25 +69,15 @@ export default function ChooseLibrary({ allDocuments, selectedDocuments, onSave,
     const currentSearchParams = useSearchParams()
     const [editing, setEditing] = useState(false)
 
-    const LIBRARY_PARAM = 'library' // stores hyphen-separated 1-based indices (1..N) in original allDocuments order
+    const LIBRARY_PARAM = 'library' // stores hyphen-separated document IDs
 
-    // Helpers to convert between IDs and 1-based numbers (index in allDocuments)
-    const idsToNumbers = (ids: string[]): number[] => {
-        const indexById = new Map(allDocuments.map((d, idx) => [d.id.toString(), idx + 1]))
-        const nums = ids.map(id => indexById.get(id)).filter((n): n is number => typeof n === 'number')
-        // sort and unique
-        const uniq = Array.from(new Set(nums))
-        uniq.sort((a, b) => a - b)
-        return uniq
-    }
+    const canonicalIds = (ids: string[]) => Array.from(new Set(ids.filter(id => id))).sort((a, b) => parseInt(a) - parseInt(b)).join('-')
 
-    const canonicalNumbers = (numbers: number[]) => Array.from(new Set(numbers.filter(n => Number.isInteger(n) && n >= 1))).sort((a, b) => a - b).join('-')
-
-    const replaceLibraryParam = (numbersOrNull: number[] | null) => {
+    const replaceLibraryParam = (idsOrNull: string[] | null) => {
         // Build new query string preserving other params
         const params = new URLSearchParams(currentSearchParams.toString())
-        if (numbersOrNull && numbersOrNull.length > 0) {
-            const value = canonicalNumbers(numbersOrNull)
+        const value = idsOrNull ? canonicalIds(idsOrNull) : null
+        if (idsOrNull && value !== canonicalIds(baselineDefaultIds || [])) {
             if (params.get(LIBRARY_PARAM) !== value) {
                 params.set(LIBRARY_PARAM, value)
             }
@@ -103,12 +93,11 @@ export default function ChooseLibrary({ allDocuments, selectedDocuments, onSave,
         setEditing(false)
         onSave(documentIds)
         // If documentIds is empty, it signals "no change" (keep default selection)
-        if (!documentIds || documentIds.length === 0) {
+        if (!documentIds) {
             replaceLibraryParam(null)
         } else {
-            // User explicitly changed selection -> set query-string with document numbers
-            const nums = idsToNumbers(documentIds)
-            replaceLibraryParam(nums)
+            // User explicitly changed selection -> set query-string with document IDs
+            replaceLibraryParam(documentIds)
         }
         onEndEditing()
     }

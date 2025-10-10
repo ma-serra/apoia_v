@@ -104,7 +104,7 @@ export class InteropPDPJ implements Interop {
         const b = await response.arrayBuffer()
         const decoder = new TextDecoder('utf-8')
         const texto = decoder.decode(b)
-        let data: any = {}
+        let data: any = undefined
         if (response.headers.get('Content-Type') === 'application/json')
             data = JSON.parse(texto)
         if (response.status !== 200) {

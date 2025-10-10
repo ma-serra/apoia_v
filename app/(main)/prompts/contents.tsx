@@ -1,6 +1,6 @@
 'use client'
 
-import { IAPromptList } from "@/lib/db/mysql-types"
+import { IALibrary, IAPromptList } from "@/lib/db/mysql-types"
 import { UserType } from "@/lib/user"
 import PromptsTable from "./prompts-table"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
@@ -48,6 +48,7 @@ export function Contents({ prompts, user, user_id, apiKeyProvided, model, isMode
     const [tramFromUrl, setTramFromUrl] = useState<number | null>(null)
     const [promptInitialized, setPromptInitialized] = useState(false)
     const [pieceContent, setPieceContent] = useState({})
+    const [allLibraryDocuments, setAllLibraryDocuments] = useState<IALibrary[]>([])
     const [toast, setToast] = useState<string>()
     const [toastVariant, setToastVariant] = useState<string>()
     const [activeTab, setActiveTab] = useState<string>('principal')
@@ -68,6 +69,24 @@ export function Contents({ prompts, user, user_id, apiKeyProvided, model, isMode
         else
             setNumeroDoProcesso(null)
     }, [number])
+
+    useEffect(() => {
+        // Load library documents
+        const loadLibraryDocuments = async () => {
+            try {
+                const response = await fetch('/api/v1/library')
+                if (response.ok) {
+                    const data = await response.json()
+                    // API returns {items: Array}, extract the array
+                    const documents = data?.items || data || []
+                    setAllLibraryDocuments(documents)
+                }
+            } catch (error) {
+                console.error('Error loading library documents:', error)
+            }
+        }
+        loadLibraryDocuments()
+    }, [])
 
     const promptOnClick = (kind: string, row: any) => {
         switch (kind) {
@@ -382,7 +401,7 @@ export function Contents({ prompts, user, user_id, apiKeyProvided, model, isMode
                             <div id="printDiv">
                                 {dadosDoProcesso
                                     ? <><ProcessTitle id={dadosDoProcesso?.numeroDoProcesso} />
-                                        <ProcessContents prompt={prompt} dadosDoProcesso={dadosDoProcesso} pieceContent={pieceContent} setPieceContent={setPieceContent} apiKeyProvided={apiKeyProvided} model={model}>
+                                        <ProcessContents prompt={prompt} dadosDoProcesso={dadosDoProcesso} pieceContent={pieceContent} setPieceContent={setPieceContent} apiKeyProvided={apiKeyProvided} model={model} allLibraryDocuments={allLibraryDocuments}>
                                             <PromptTitle prompt={prompt} />
                                         </ProcessContents>
                                     </>

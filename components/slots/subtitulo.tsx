@@ -1,7 +1,7 @@
 import { tua } from '@/lib/proc/tua'
 import { DadosDoProcessoType } from "@/lib/proc/process-types"
 import { ReactNode } from 'react'
-import { formatBrazilianDate, maiusculasEMinusculas } from '@/lib/utils/utils'
+import { formatBrazilianDate, maiusculasEMinusculas, maiusculasEMinusculasOuSigla } from '@/lib/utils/utils'
 
 export const SubtituloAsync = async ({ pDadosDoProcesso }) => {
     const dadosDoProcesso = await pDadosDoProcesso
@@ -24,7 +24,7 @@ export const Subtitulo = ({ dadosDoProcesso }: { dadosDoProcesso: DadosDoProcess
             ? <div className="text-center">{nomeDaClasse}</div>
             : ''}
         {poloAtivo && poloPassivo
-            ? <div className="text-center">{`${maiusculasEMinusculas(poloAtivo)}  x  ${maiusculasEMinusculas(poloPassivo)}`}</div>
+            ? <div className="text-center">{`${maiusculasEMinusculasOuSigla(poloAtivo)}  x  ${maiusculasEMinusculasOuSigla(poloPassivo)}`}</div>
             : ''}
         {ajuizamento
             ? <div className="text-center">{`Ajuizado em ${formatBrazilianDate(ajuizamento)}`}</div>

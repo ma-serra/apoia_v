@@ -125,6 +125,38 @@ const tableSpecs = (pathname: string, onClick: (kind: string, row: any) => void,
                 { header: 'Nota %', accessorKey: 'score', enableSorting: true, style: { textAlign: "right" }, cell: data => <a href={`${pathname}/../test/${data.row.original.testset_id}/${data.row.original.prompt_id}/${data.row.original.model_id}`}>{(data.row.original.score).toFixed(1)}</a> },
             ]
         },
+        ChooseLibrary: {
+            columns: [
+                {
+                    id: 'select-col',
+                    header: ({ table }) => (
+                        <Form.Check
+                            checked={table.getIsAllRowsSelected()}
+                            onChange={table.getToggleAllRowsSelectedHandler()}
+                        />
+                    ),
+                    cell: ({ row }) => (
+                        <Form.Check
+                            checked={row.getIsSelected()}
+                            onChange={row.getToggleSelectedHandler()}
+                        />
+                    ),
+                },
+                { 
+                    header: 'Título', 
+                    accessorKey: 'title', 
+                    enableSorting: true,
+                    cell: data => data.row.original.title
+                },
+                { header: 'Inclusão', accessorKey: 'inclusion', enableSorting: true, cell: data => {
+                    const { IALibraryInclusionLabels } = require('@/lib/db/mysql-types');
+                    return data.row.original.inclusion ? IALibraryInclusionLabels[data.row.original.inclusion] : IALibraryInclusionLabels.NAO;
+                } },
+                { header: 'Contexto', accessorKey: 'context', enableSorting: true, cell: data => data.row.original.context ? (data.row.original.context.length > 50 ? data.row.original.context.substring(0, 50) + '...' : data.row.original.context) : '-' },
+            ],
+            tableClassName: 'table table-sm table-striped table-info',
+            pageSizes: [10, 20, 50, 100],
+        },
         Library: {
             columns: [
                 { 

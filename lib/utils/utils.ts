@@ -13,13 +13,20 @@ export const primeiroEUltimoNome = (nome: string): string => {
   return partes[0] + ' ' + partes[partes.length - 1]
 }
 
-export const maiusculasEMinusculas = (s) => {
+export const maiusculasEMinusculasOuSigla = (s) => {
   if (!s) return s
-
   const splited = s.split(' - ', 2)
   if (splited.length > 1) {
-    return maiusculasEMinusculas(splited[0]) + ' - ' + splited[1]
+    if (splited[0].length > splited[1].length)
+      return maiusculasEMinusculas(splited[0]) + ' - ' + splited[1]
+    else
+      return splited[0] + ' - ' + maiusculasEMinusculas(splited[1])
   }
+  return maiusculasEMinusculas(s)
+}
+
+export const maiusculasEMinusculas = (s) => {
+  if (!s) return s
 
   let sb = "";
   let f = true;

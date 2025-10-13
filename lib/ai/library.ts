@@ -9,50 +9,28 @@ import { IALibrary, IALibraryInclusion } from "../db/mysql-types"
  * 
  * @returns String formatada com os documentos da biblioteca
  */
-export async function getLibraryDocumentsForPrompt(): Promise<string> {
+export async function getLibraryDocumentsForPrompt(ids: string[] | undefined): Promise<string> {
     try {
-        // Busca todos os documentos da biblioteca do usuário
-        const documents: IALibrary[] = await Dao.listLibrary()
-
-        // Filtra documentos que não são binários e que têm conteúdo
-        const validDocuments = documents.filter(doc =>
-            doc.content_markdown &&
-            doc.kind !== 'ARQUIVO'
-        )
-
-        // Separa documentos por tipo de inclusão
-        const alwaysInclude = validDocuments.filter(doc =>
-            doc.inclusion === IALibraryInclusion.SIM
-        )
-
-        const contextualDocuments = validDocuments.filter(doc =>
-            doc.inclusion === IALibraryInclusion.CONTEXTUAL
-        )
+        const lib = await getLibraryDocuments(ids)
 
         let result = `# Biblioteca de Documentos do Usuário \n\n`
 
         // Adiciona documentos com inclusão automática
-        if (alwaysInclude.length > 0) {
-            result += '## Referências da Biblioteca\n\n'
-            result += 'Os seguintes documentos são referência obrigatória para execução da tarefa:\n\n'
-
-            for (const doc of alwaysInclude) {
-                result += `<library-document id="${doc.id}" title="${doc.title}">\n${doc.content_markdown}\n</library-document>\n\n`
-            }
+        if (lib.included.length > 0) {
+            result += `Os seguintes documentos são referência obrigatória para execução da tarefa, o conteúdo completo de cada documento está disponível entre <library-document> e </library-document>:\n\n`
+            result += lib.included
+        } else {
+            result += `O usuário não selecionou nenhum documento.\n\n`
         }
 
         // Adiciona documentos contextuais
-        if (contextualDocuments.length > 0) {
-            if (result) result += '\n'
-
-            result += `## Outros Documentos Disponíveis
-Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados conforme o contexto da solicitação:\n\n`
-
-            for (const doc of contextualDocuments) {
-                const context = doc.context ? ` context="${doc.context}"` : ''
-                result += `<library-document id="${doc.id}" title="${doc.title}"${context} />\n\n`
-            }
-            result += '\n'
+        if (lib.available.length > 0) {
+            result += `Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados conforme o contexto da solicitação:\n\n`
+            result += `<library-refs>\n`
+            result += lib.available
+            result += `</library-refs>\n`
+        } else {
+            result += `Não existem documentos disponíveis para serem incluídos em função do contexto.\n\n`
         }
 
         return result
@@ -90,7 +68,7 @@ export async function getLibraryDocuments(ids: string[] | undefined): Promise<Li
         let included = ``
         if (alwaysInclude.length > 0) {
             for (const doc of alwaysInclude) {
-                included += `<library-document id="${doc.id}">\n${doc.content_markdown}\n</library-document>\n\n`
+                included += `<library-document title="${doc.title}">\n${doc.content_markdown}\n</library-document>\n\n`
             }
         }
 
@@ -99,7 +77,7 @@ export async function getLibraryDocuments(ids: string[] | undefined): Promise<Li
         if (contextualDocuments.length > 0) {
             for (const doc of contextualDocuments) {
                 const context = doc.context ? ` context="${doc.context}"` : ''
-                available += `<library-document id="${doc.id}" title="${doc.title}"${context} />\n\n`
+                available += `<library-ref id="${doc.id}" title="${doc.title}"${context} />\n\n`
             }
         }
 

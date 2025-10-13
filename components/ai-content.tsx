@@ -13,11 +13,9 @@ import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 import { Form } from 'react-bootstrap'
 import devLog from '@/lib/utils/log'
 import { readUIMessageStream, UIMessage } from 'ai'
-import { reasoning, ReasoningType } from '@/lib/ai/reasoning'
 import { parseSSEToUIMessageChunkStream } from '@/lib/ai/message-stream'
-import Reasoning from './reasoning-control'
-import ErrorMsg from '@/app/(main)/prompts/error-msg'
 import ErrorMessage from './error-message'
+import MessageStatus from './message-status'
 
 export const getColor = (text, errormsg) => {
     let color = 'info'
@@ -42,14 +40,13 @@ export const spinner = (s: string, complete: boolean): string => {
 
 export default function AiContent(params: { definition: PromptDefinitionType, data: PromptDataType, options?: PromptOptionsType, config?: PromptConfigType, visualization?: VisualizationEnum, dossierCode: string, diffSource?: string, onBusy?: () => void, onReady?: (content: ContentType) => void }) {
     const [current, setCurrent] = useState('')
-    const [currentReasoning, setCurrentReasoning] = useState<ReasoningType | undefined>(undefined)
     const [complete, setComplete] = useState(false)
     const [errormsg, setErrormsg] = useState('')
     const [show, setShow] = useState(false)
     const [evaluated, setEvaluated] = useState(false)
     const [visualizationId, setVisualizationId] = useState<number>(params.visualization)
     const [showTemplateTable, setShowTemplateTable] = useState(false)
-    const [showReasoning, setShowReasoning] = useState(false)
+    const [currentMessage, setCurrentMessage] = useState<UIMessage>({ id: null, role: 'assistant', parts: [] })
     const initialized = useRef(false)
 
     const reportError = (err: any, payload: any) => {
@@ -157,9 +154,9 @@ export default function AiContent(params: { definition: PromptDefinitionType, da
                 let text: string = ''
                 // Iterate over the stream and process each chunk
                 for await (const message of uiMessageStream) {
-                    parts = message.parts;
+                    setCurrentMessage(message)
                     devLog('Received message parts:', message.parts);
-                    setCurrentReasoning(reasoning(message));
+                    parts = message.parts;
                     if (parts?.find(p => p.type === 'text')) {
                         const textPart = parts.find(p => p.type === 'text');
                         text = textPart?.text || '';
@@ -223,7 +220,7 @@ export default function AiContent(params: { definition: PromptDefinitionType, da
     const preprocessed = preprocess(current, params.definition, params.data, complete, visualizationId, params.diffSource)
 
     return <>
-        {currentReasoning && <Reasoning currentReasoning={currentReasoning} showReasoning={showReasoning} setShowReasoning={setShowReasoning} />}
+        <MessageStatus message={currentMessage} />
         {current || errormsg
             ? <>
                 <div className={`alert alert-${color} ai-content`}>

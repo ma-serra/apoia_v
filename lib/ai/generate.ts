@@ -19,7 +19,7 @@ import { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google'
 import { OpenAIResponsesProviderOptions } from '@ai-sdk/openai'
 import devLog, { isDev } from '../utils/log'
 import * as Sentry from '@sentry/nextjs'
-import { getLibraryDocuments } from './library'
+import { getLibraryDocumentsForPrompt } from './library'
 import { getTools } from './tools'
 
 export async function retrieveFromCache(sha256: string, model: string, prompt: string, attempt: number | null): Promise<IAGenerated | undefined> {
@@ -64,7 +64,7 @@ function writeResponseToFile(kind: string, messages: ModelMessage[], text: strin
     }
 }
 
-export async function generateContent(definition: PromptDefinitionType, data: PromptDataType, tools: Record<string, any>): Promise<IAGenerated> {
+export async function generateContent(definition: PromptDefinitionType, data: PromptDataType, tools?: Record<string, any>): Promise<IAGenerated> {
     const results: PromptExecutionResultsType = {}
     const ret = await streamContent(definition, data, results, undefined, tools)
     const stream = ret.textStream ? await ret.textStream : ret.objectStream ? await ret.objectStream : ret.cached ? ret.cached : undefined
@@ -137,7 +137,7 @@ export async function streamContent(definition: PromptDefinitionType, data: Prom
     const { model: modelPreSelected } = await getModel({ structuredOutputs: false, overrideModel: definition.model })
     data.textos = clipPieces(modelPreSelected, data.textos)
 
-    const libraryPrompt = await getLibraryDocuments(data.documentosDaBiblioteca)
+    const libraryPrompt = await getLibraryDocumentsForPrompt(data.documentosDaBiblioteca)
     const exec = promptExecuteBuilder(definition, data, libraryPrompt)
     const messages = exec.message
     const structuredOutputs = exec.params?.structuredOutputs
@@ -331,7 +331,7 @@ export async function evaluate(definition: PromptDefinitionType, data: PromptDat
 
     const { model } = await getModel()
     await waitForTexts(data)
-    const libraryPrompt = await getLibraryDocuments(data.documentosDaBiblioteca)
+    const libraryPrompt = await getLibraryDocumentsForPrompt(data.documentosDaBiblioteca)
     const exec = promptExecuteBuilder(definition, data, libraryPrompt)
     const messages = exec.message
     const sha256 = calcSha256(messages)

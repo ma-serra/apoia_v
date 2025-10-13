@@ -44,17 +44,7 @@
 
 ## Biblioteca de Documentos do Usuário
 
-### Referências da Biblioteca
-
-Os seguintes documentos devem ser considerados:
-
-{{bibliotecaIncluida}}
-
-### Outros Documentos Disponíveis
-
-Os seguintes documentos estão disponíveis na biblioteca e devem ser carregados conforme o contexto da solicitação:
-
-{{bibliotecaDisponivel}}
+{{biblioteca}}
 
 ## INFORMAÇÕES ADICIONAIS
 - Data atual (está atualizada, pode utilizar): {{dataAtual}}

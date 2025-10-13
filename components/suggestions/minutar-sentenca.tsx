@@ -2,7 +2,7 @@
 import { ModalProps, SuggestionContext } from './context'
 import { Suggestion } from './base'
 import { Modal, Button, Form } from 'react-bootstrap'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { faGavel } from '@fortawesome/free-solid-svg-icons'
 
 export const id = 'draft-sentence'
@@ -33,6 +33,8 @@ export default function DraftSentenceModal(props: ModalProps<{ processNumber?: s
   const [processNumber, setProcessNumber] = useState<string>(initial?.processNumber || context.processNumber || draft?.processNumber || '')
   const [decision, setDecision] = useState<'' | 'procedente' | 'improcedente'>(draft?.decision || '')
   const [fundamentacao, setFundamentacao] = useState<string>(draft?.fundamentacao || '')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const selectRef = useRef<HTMLSelectElement>(null)
 
   useEffect(() => {
     if (show) {
@@ -41,7 +43,28 @@ export default function DraftSentenceModal(props: ModalProps<{ processNumber?: s
     // include context.processNumber, draft?.processNumber, initial?.processNumber as dependencies
   }, [show, context.processNumber, draft?.processNumber, initial?.processNumber])
 
+  useEffect(() => {
+    if (show) {
+      // Delay para aguardar a animação do modal
+      const timer = setTimeout(() => {
+        if (!context.processNumber && inputRef.current) {
+          inputRef.current.focus()
+        } else if (selectRef.current) {
+          selectRef.current.focus()
+        }
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [show, context.processNumber])
+
   const canSubmit = processNumber.trim().length > 0 && decision
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && canSubmit) {
+      e.preventDefault()
+      onSubmit({ processNumber, decision, fundamentacao })
+    }
+  }
 
   return (
     <Modal show={show} onHide={onClose} backdrop="static">
@@ -51,11 +74,11 @@ export default function DraftSentenceModal(props: ModalProps<{ processNumber?: s
       <Modal.Body>
         <Form.Group className={`mb-3 ${context.processNumber ? 'd-none' : ''}`}>
           <Form.Label>Número do processo</Form.Label>
-          <Form.Control name="numeroDoProcesso" value={processNumber} onChange={(e) => setProcessNumber(e.target.value)} />
+          <Form.Control ref={inputRef} name="numeroDoProcesso" value={processNumber} onChange={(e) => setProcessNumber(e.target.value)} onKeyDown={handleKeyDown} />
         </Form.Group>
         <Form.Group className="mb-3">
           <Form.Label>Decisão</Form.Label>
-          <Form.Select value={decision} onChange={(e) => setDecision(e.target.value as any)}>
+          <Form.Select ref={selectRef} value={decision} onChange={(e) => setDecision(e.target.value as any)} onKeyDown={handleKeyDown}>
             <option value="">[Selecione]</option>
             <option value="procedente">Procedente</option>
             <option value="improcedente">Improcedente</option>
@@ -63,7 +86,7 @@ export default function DraftSentenceModal(props: ModalProps<{ processNumber?: s
         </Form.Group>
         <Form.Group>
           <Form.Label>Fundamentação</Form.Label>
-          <Form.Control as="textarea" rows={6} value={fundamentacao} onChange={(e) => setFundamentacao(e.target.value)} />
+          <Form.Control as="textarea" rows={6} value={fundamentacao} onChange={(e) => setFundamentacao(e.target.value)} onKeyDown={handleKeyDown} />
         </Form.Group>
       </Modal.Body>
       <Modal.Footer>

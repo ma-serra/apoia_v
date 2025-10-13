@@ -13,7 +13,7 @@ export const formatText = (txt: TextoType, limit?: number) => {
     return s
 }
 
-export const applyTextsAndVariables = (text: string, data: PromptDataType, jsonSchema?: string, template?: string, libraryPrompt?: { available: string, included: string }): string => {
+export const applyTextsAndVariables = (text: string, data: PromptDataType, jsonSchema?: string, template?: string, libraryPrompt?: string): string => {
     if (!text) return ''
 
     const allTexts = `${data.textos.reduce((acc, txt) => acc + formatText(txt), '')}`
@@ -34,9 +34,7 @@ export const applyTextsAndVariables = (text: string, data: PromptDataType, jsonS
 
     text = text.replace('{{textos}}', allTexts)
 
-    text = text.replace('{{bibliotecaIncluida}}', libraryPrompt?.included || 'O usuário não selecionou nenhum documento.')
-
-    text = text.replace('{{bibliotecaDisponivel}}', libraryPrompt?.available || 'Não existem documentos disponíveis para serem incluídos em função do contexto.')
+    text = text.replace('{{biblioteca}}', libraryPrompt)
 
     text = text.replace('{{numeroDoProcesso}}', data.numeroDoProcesso || 'Número do processo não definido')
 
@@ -84,10 +82,10 @@ export async function getPiecesWithContent(dadosDoProcesso: DadosDoProcessoType,
     return pecasComConteudo
 }
 
-export const promptExecuteBuilder = (definition: PromptDefinitionType, data: PromptDataType, libraryPrompt?: LibraryDocumentsType): PromptExecuteType => {
+export const promptExecuteBuilder = (definition: PromptDefinitionType, data: PromptDataType, libraryPrompt?: string): PromptExecuteType => {
     const message: ModelMessage[] = []
     if (definition?.kind !== 'chat' && definition?.kind !== 'chat_standalone') {
-        _sistema.split('\n---\n').forEach(part => {
+        sistema.split('\n---\n').forEach(part => {
             message.push({ role: 'system', content: applyTextsAndVariables(part, data, definition.jsonSchema, definition.template, libraryPrompt) })
         })
     }
@@ -194,7 +192,7 @@ export function getInternalPrompt(slug: string): PromptDefinitionType {
     return internalPrompts[getPromptIdentifier(slug)]
 }
 
-import _sistema from '@/prompts/_sistema.md'
+import sistema from '@/prompts/sistema.md'
 import ementa from '@/prompts/ementa.md'
 import int_testar from "@/prompts/int-testar.md"
 import int_gerar_perguntas from "@/prompts/int-gerar-perguntas.md"

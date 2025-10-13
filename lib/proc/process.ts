@@ -91,8 +91,8 @@ export type ObterDadosDoProcessoType = {
 
 export const getInteropFromUser = async (user: UserType): Promise<Interop> => {
     const username = user?.email
-    const password = user?.image?.password ? decrypt(user?.image.password) : undefined
-    const system = user?.image?.system
+    const password = user?.encryptedPassword ? decrypt(user?.encryptedPassword) : undefined
+    const system = user?.system
 
     const interop = getInterop(system, username, password)
     await interop.init()
@@ -100,7 +100,7 @@ export const getInteropFromUser = async (user: UserType): Promise<Interop> => {
 }
 
 export const getSystemIdAndDossierId = async (user: UserType, numeroDoProcesso: string): Promise<{ system_id: number, dossier_id: number }> => {
-    const system_id = await Dao.assertSystemId(user?.image?.system || 'PDPJ')
+    const system_id = await Dao.assertSystemId(user?.system || 'PDPJ')
     const dossier_id = await Dao.assertIADossierId(numeroDoProcesso, system_id, undefined, undefined)
     return { system_id, dossier_id }
 }
@@ -126,7 +126,9 @@ export const obterDadosDoProcesso = async ({ numeroDoProcesso, pUser, idDaPeca, 
         // localiza a tramitação que contém a peça solicitada
         if (apenasPecasEspecificas.length > 0) {
             dadosDoProcesso = arrayDadosDoProcesso.find(d => d.pecas.map(p => p.id).includes(apenasPecasEspecificas[0]))
-            if (!dadosDoProcesso) throw new Error(`Peças específicas ${apenasPecasEspecificas.join(', ')} não encontradas no processo ${numeroDoProcesso}`)
+            if (!dadosDoProcesso) {
+                throw new Error(`Peças específicas ${apenasPecasEspecificas.join(', ')} não encontradas no processo ${numeroDoProcesso}`)
+            }
         }
 
         pecas = [...dadosDoProcesso.pecas]
@@ -290,8 +292,8 @@ export const obterDadosDoProcesso2 = async ({ numeroDoProcesso, pUser, pieces, c
     try {
         const user = await pUser
         const username = user?.email
-        const password = user?.image?.password ? decrypt(user?.image.password) : undefined
-        const system = user?.image?.system
+        const password = user?.encryptedPassword ? decrypt(user?.encryptedPassword) : undefined
+        const system = user?.system
 
         const interop = getInterop(system, username, password)
         await interop.init()
@@ -300,7 +302,7 @@ export const obterDadosDoProcesso2 = async ({ numeroDoProcesso, pUser, pieces, c
         // pecas = [...dadosDoProcesso.pecas]
 
         // // grava os dados do processo no banco
-        // const system_id = await Dao.assertSystemId(user?.image?.system || 'PDPJ')
+        // const system_id = await Dao.assertSystemId(user?.system || 'PDPJ')
         // const dossier_id = await Dao.assertIADossierId(numeroDoProcesso, system_id, dadosDoProcesso.codigoDaClasse, dadosDoProcesso.ajuizamento)
 
         return { arrayDeDadosDoProcesso: [...dadosDoProcesso] }

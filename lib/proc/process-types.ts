@@ -150,10 +150,13 @@ export const formatarMensagemDeConteudoNaoSuportado = (idDaPeca: string, descrDa
     return `Peça ${idDaPeca} (${descrDaPeca}) - Tipo de conteúdo não suportado: ${contentType}`
 }
 
-export const identificarSituacaoDaPeca = (texto: string): { sigilosa: boolean, inacessivel: boolean, parcial: boolean, vazia: boolean, problematica: boolean } => {
+export const identificarSituacaoDaPeca = (texto: string): { sigilosa: boolean, inacessivel: boolean, parcial: boolean, vazia: boolean, problematica: boolean, explicacao: string } => {
     const sigilosa = texto === TEXTO_PECA_SIGILOSA
     const inacessivel = texto?.startsWith(TEXTO_PECA_COM_ERRO) || texto === TEXTO_PECA_PDF_OCR_ERRO
+    let explicacao = ''
+    if (inacessivel) 
+        explicacao = texto?.replace(TEXTO_PECA_COM_ERRO, '').replace(TEXTO_PECA_PDF_OCR_ERRO, '').trim() || ''
     const vazia = !texto || texto === TEXTO_PECA_IMAGEM_JPEG || texto === TEXTO_PECA_IMAGEM_PNG || texto === TEXTO_PECA_AUDIO_XMS_WMA || texto === TEXTO_PECA_VIDEO_XMS_WMV || texto === TEXTO_PECA_VIDEO_MP4 || texto === TEXTO_PECA_PDF_OCR_VAZIO
     const parcial = texto?.endsWith(TEXTO_INDICACAO_PARCIAL)
-    return { sigilosa, inacessivel, parcial, vazia, problematica: sigilosa || inacessivel || vazia || parcial }
+    return { sigilosa, inacessivel, parcial, vazia, problematica: sigilosa || inacessivel || vazia || parcial, explicacao }
 }

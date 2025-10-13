@@ -86,7 +86,9 @@ export default function ProcessContents({ prompt, dadosDoProcesso, pieceContent,
             setLoadingPiecesProgress(Object.keys(contents).length)
             const resp = await loading[id]
             if (!resp.ok) {
-                contents[id] = TEXTO_PECA_COM_ERRO
+                const data = await resp.json().catch(() => ({}))
+                if (data.errormsg)
+                    contents[id] = `${TEXTO_PECA_COM_ERRO}${data.errormsg ? ` ${data.errormsg}` : ''}`
                 continue
             }
             const json = await resp.json()

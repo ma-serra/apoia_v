@@ -4,63 +4,61 @@ import { Col, Container, Form, Row, Spinner } from 'react-bootstrap'
 import { IAPrompt } from '@/lib/db/mysql-types'
 import Link from 'next/link'
 
-export default async function PromptInfoContents({ pPrompt, isModerator }: { pPrompt: Promise<IAPrompt>, isModerator: boolean }) {
-    const prompt = await pPrompt
-
+export default async function PromptInfoContents({ prompt, isModerator }: { prompt: IAPrompt, isModerator: boolean }) {
     return (
         <Container className="mt-3" fluid={false}>
             <Form>
                 <Row className="mb-3">
-                    <Col md={3}>
+                    {prompt?.name && <Col md={6}>
                         <Form.Label>Nome</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.name} />
-                    </Col>
-                    <Col md={3}>
+                    </Col>}
+                    {prompt?.content?.author && <Col md={6}>
                         <Form.Label>Autor</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.author} />
-                    </Col>
-                    <Col md={2}>
+                    </Col>}
+                    {prompt?.content?.scope && <Col md={4}>
                         <Form.Label>Segmento</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.scope} />
-                    </Col>
-                    <Col md={2}>
+                    </Col>}
+                    {prompt?.content?.instance && <Col md={4}>
                         <Form.Label>Instância</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.instance} />
-                    </Col>
-                    <Col md={2}>
+                    </Col>}
+                    {prompt?.content?.matter && <Col md={4}>
                         <Form.Label>Natureza</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.matter} />
-                    </Col>
+                    </Col>}
                 </Row>
                 <Row className="mb-3">
-                    <Col md={3}>
+                    {prompt?.content?.target && <Col md={3}>
                         <Form.Label>Alvo</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.target} />
-                    </Col>
-                    <Col md={3}>
+                    </Col>}
+                    {prompt?.content?.editor_label && <Col md={3}>
                         <Form.Label>Nome do Campo</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.editor_label} />
-                    </Col>
-                    <Col md={3}>
+                    </Col>}
+                    {prompt?.content?.piece_strategy && <Col md={3}>
                         <Form.Label>Seleção de Peças</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.piece_strategy} />
-                    </Col>
-                    <Col md={3}>
+                    </Col>}
+                    {prompt?.content?.piece_descr && <Col md={3}>
                         <Form.Label>Tipos de Peças</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.piece_descr} />
-                    </Col>
+                    </Col>}
                 </Row>
                 <Row className="mb-3">
-                    <Col md={2}>
+                    {prompt?.content?.summary && <Col md={2}>
                         <Form.Label>Resumir Selecionadas</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.content.summary} />
-                    </Col>
-                    <Col md={2}>
+                    </Col>}
+                    {prompt?.share && <Col md={2}>
                         <Form.Label>Compartilhamento</Form.Label>
                         <Form.Control className="form-control" readOnly defaultValue={prompt.share} />
-                    </Col>
+                    </Col>}
                 </Row>
-                {prompt.content.template !== undefined && (<Row className="mb-3">
+                {prompt.content.template && (<Row className="mb-3">
                     <Col>
                         <Form.Label>Modelo</Form.Label>
                         <Form.Control className="form-control"
@@ -102,7 +100,7 @@ export default async function PromptInfoContents({ pPrompt, isModerator }: { pPr
                 {(prompt.content.json_schema || prompt.content.format) && (
                     <Row className="mb-3">
                         {prompt.content.json_schema && (
-                            <Col md={6}>
+                            <Col md={12}>
                                 <Form.Label>JSON Schema</Form.Label>
                                 <Form.Control className="form-control"
                                     as="textarea"
@@ -114,7 +112,7 @@ export default async function PromptInfoContents({ pPrompt, isModerator }: { pPr
                             </Col>
                         )}
                         {prompt.content.format && (
-                            <Col md={6}>
+                            <Col md={12}>
                                 <Form.Label>Format</Form.Label>
                                 <Form.Control className="form-control"
                                     as="textarea"

@@ -257,6 +257,21 @@ export const padraoAgravoForcado = [
     ANY(),
 ]
 
+export const padraoAgravoSemConhecimento = [
+    ANY(),
+    PHASE('Agravo Aberto'),
+    OR(...pecasQueRepresentamAgravoPara2aInstancia),
+    ANY({
+        capture: pecasRelevantes2aInstanciaRecursos, greedy: true, except: pecasQueFinalizamFases
+    }),
+]
+
+export const padraoAgravoForcadoSemConhecimento = [
+    ...padraoAgravoSemConhecimento,
+    PHASE('Agravo Fechada'),
+    EXACT(T.ACORDAO),
+    ANY(),
+]
 
 export const padraoApelacaoAberta = [
     ANY({ capture: [T.PETICAO_INICIAL, ...pecasRelevantesDaFaseDeConhecimentoPara2aInstancia] }),
@@ -382,7 +397,7 @@ export const TipoDeSinteseMap: Record<string, TipoDeSinteseType> = {
         relatorioDeAcervo: true,
         sort: 1,
         nome: 'Relatório de Apelação e Triagem',
-        padroes: [...padroesBasicosSegundaInstancia, padraoAgravoForcado, padraoApelacaoForcado],
+        padroes: [...padroesBasicosSegundaInstancia, padraoAgravoForcado, padraoApelacaoForcado, padraoAgravoSemConhecimento, padraoAgravoForcadoSemConhecimento],
         produtos: [P.RELATORIO_DE_APELACAO_E_TRIAGEM, P.CHAT]
     },
 

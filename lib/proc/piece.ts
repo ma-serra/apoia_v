@@ -151,8 +151,8 @@ export const obterConteudoDaPeca = async (dossier_id: number, numeroDoProcesso: 
     try {
         assertNivelDeSigilo(sigiloDaPeca, `${descrDaPeca} (${idDaPeca})`)
 
-        const document = await obterDocumentoGravado(dossier_id, numeroDoProcesso, idDaPeca, descrDaPeca)
-        const document_id = document ? document.id : undefined
+        const document = envString('DISABLE_DOCUMENT_CACHE') !== '1' ? await obterDocumentoGravado(dossier_id, numeroDoProcesso, idDaPeca, descrDaPeca) : undefined
+        const document_id = document?.id
 
         if (document && document.content) {
             devLog('Retrieving from cache, content of type', document.content_source_id)

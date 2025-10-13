@@ -52,8 +52,8 @@ async function GET_HANDLER(
   const user = await pUser
 
   const username = user?.email
-  const password = user?.image?.password ? decrypt(user?.image.password) : undefined
-  const system = user?.image?.system
+  const password = user?.encryptedPassword ? decrypt(user?.encryptedPassword) : undefined
+  const system = user?.system
   const interop = getInterop(system, username, password)
   await interop.init()
 

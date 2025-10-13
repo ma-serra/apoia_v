@@ -178,8 +178,6 @@ export async function generateAndStreamContent(model: string, structuredOutputs:
     const user_id = await Dao.assertIAUserId(user.preferredUsername || user.name)
     const court_id = await assertCourtId(user)
 
-    console.log('tools:', Object.keys(tools || {}))
-
     // --- PDF processing & logging sanitization ---
     const modelSupportsPdf = () => {
         const details = Object.values(Model).find(m => m.name === model)

@@ -3,7 +3,7 @@ import { UnauthorizedError, withErrorHandler } from '@/lib/utils/api-error'
 
 async function GET_HANDLER(_req: Request) {
     const user = await assertApiUser()
-    delete user.image
+    delete user.encryptedPassword
     return Response.json(user)
 }
 

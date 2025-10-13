@@ -28,8 +28,10 @@ const obterPecaSemLimite = async (numeroDoProcesso: string, idDaPeca: string, sy
     const url = `${system.api}/processo/${numeroDoProcesso}/peca/${idDaPecaConsulta}/pdf?sistema=${encodeURIComponent(sistemaConsulta)}`
     const resp = await fetch(url, { method: 'GET', headers })
     if (!resp.ok) {
-        throw new Error(`Erro ao obter peça (${resp.status})`)
+        const data = await resp.json().catch(() => ({}))
+        throw new Error(data?.errormsg || `Erro ao obter peça (${resp.status}`)
     }
+
     const jwt = (await resp.json()).jwt
 
     const urlDownload = `${system.api}/download/${jwt}/${numeroDoProcesso}-${idDaPecaConsulta}.pdf`
@@ -95,21 +97,25 @@ export class InteropBalcaojus implements Interop {
         // Descobrir sistema se não informado (apenas na chamada raiz)
         let sistemaConsulta = sistemaAlternativo
         if (!sistemaConsulta) {
-            try {
-                const validarUrl = `${this.system.api}/processo/validar?numero=${numeroDoProcesso}`
-                const respValidar = await fetch(validarUrl, { method: 'GET', headers })
+            const validarUrl = `${this.system.api}/processo/validar?numero=${numeroDoProcesso}`
+            const respValidar = await fetch(validarUrl, { method: 'GET', headers })
+            if (respValidar.ok) {
                 const bodyValidar = await respValidar.json()
-                if (respValidar.ok) {
-                    const list = Array.isArray(bodyValidar?.list) ? bodyValidar.list : []
-                    if (list.length > 0 && list[0]?.sistema) sistemaConsulta = list[0].sistema
-                }
-            } catch { /* ignore */ }
+                const list = Array.isArray(bodyValidar?.list) ? bodyValidar.list : []
+                if (list.length > 0 && list[0]?.sistema) sistemaConsulta = list[0].sistema
+            } else {
+                const data = await respValidar.json().catch(() => ({}))
+                throw new Error(data?.errormsg || `Erro ao validar número de processo (${respValidar.status})`)
+            }
         }
 
         // Consulta principal
         const url = `${this.system.api}/processo/${numeroDoProcesso}/consultar?sistema=${encodeURIComponent(sistemaConsulta || '')}`
         const resp = await fetch(url, { method: 'GET', headers })
-        if (!resp.ok) return []
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}))
+            throw new Error(data?.errormsg || `Erro ao consultar processo (${resp.status})`)
+        }
         const body = await resp.json()
         const value = body?.value
         if (!value?.dadosBasicos) return []

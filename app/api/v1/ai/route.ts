@@ -245,7 +245,7 @@ async function POST_HANDLER(request: Request) {
         })
     }
 
-    throw new ApiError('Invalid response', 500)
+    throw new ApiError(`Resposta inválida do provedor de IA (${JSON.stringify(ret)})`, 500)
 }
 
 export const POST = withErrorHandler(POST_HANDLER as any)

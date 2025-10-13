@@ -1,11 +1,5 @@
 import { redirect } from 'next/navigation'
 
-// Shape of the user object we rely on (partial to avoid tight coupling)
-// Extend the domain UserType with an optional legacy `picture` object used in some
-// session payloads (original JS code referenced user.picture.*). We fallback to
-// top-level fields when `picture` is absent.
-interface LegacyPictureFields { email?: string; name?: string; cpf?: string }
-
 interface FetcherErrorPayload {
     errormsg?: string
     error?: {

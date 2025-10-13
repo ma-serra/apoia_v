@@ -16,8 +16,8 @@ export const buildFooter = (model: string, pecasComConteudo: TextoType[]): strin
     let pecasStr = ''
     if (pecasComConteudo?.length) {
         const pecasNomes = pecasComConteudo.map(p => {
-            const { sigilosa, inacessivel, parcial, vazia } = identificarSituacaoDaPeca(p.texto)
-            return `<span class="${sigilosa ? 'peca-sigilosa' : inacessivel ? 'peca-inacessivel' : parcial ? 'peca-parcial' : vazia ? 'peca-vazia' : ''}">${p.descr?.toLowerCase()} (e.${p.event}${sigilosa ? ', sigilosa' : inacessivel ? ', inacessível' : parcial ? ', parcial' : vazia ? ', vazia' : ''})</span>`
+            const { sigilosa, inacessivel, parcial, vazia, explicacao } = identificarSituacaoDaPeca(p.texto)
+            return `<span title="${explicacao}" class="${sigilosa ? 'peca-sigilosa' : inacessivel ? 'peca-inacessivel' : parcial ? 'peca-parcial' : vazia ? 'peca-vazia' : ''}">${p.descr?.toLowerCase()} (e.${p.event}${sigilosa ? ', sigilosa' : inacessivel ? ', inacessível' : parcial ? ', parcial' : vazia ? ', vazia' : ''})</span>`
         })
         if (pecasNomes.length === 1) {
             pecasStr = pecasNomes[0]

@@ -84,6 +84,8 @@ export class InteropPDPJ implements Interop {
 
 
     private consultarProcessoPdpj = async (numeroDoProcesso: string) => {
+        const num = (numeroDoProcesso || '').replace(/\D/g, '')
+        if (num.length !== 20) throw new Error(`Número do processo inválido: ${numeroDoProcesso}`)
         const response = await fetch(
             envString('DATALAKE_API_URL') + `/processos/${numeroDoProcesso}`,
             {
@@ -98,20 +100,15 @@ export class InteropPDPJ implements Interop {
         )
 
 
-        let data: any = {}
 
         const b = await response.arrayBuffer()
         const decoder = new TextDecoder('utf-8')
         const texto = decoder.decode(b)
-        if (response.headers.get('Content-Type') === 'application/json') {
+        let data: any = undefined
+        if (response.headers.get('Content-Type') === 'application/json')
             data = JSON.parse(texto)
-        }
         if (response.status !== 200) {
-            try {
-                throw new Error(data?.message)
-            } catch (e) {
-                throw new Error(`Não foi possível acessar o processo ${numeroDoProcesso} no DataLake/Codex da PDPJ (${e})`)
-            }
+            throw new Error(`Não foi possível acessar o processo ${numeroDoProcesso} no DataLake/Codex da PDPJ (${data ? data?.message || JSON.stringify(data) : response.statusText})`)
         }
         return data
     }

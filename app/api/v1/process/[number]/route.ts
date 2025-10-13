@@ -33,7 +33,7 @@ import { withErrorHandler } from "@/lib/utils/api-error"
  */
 async function GET_HANDLER(
   req: NextRequest,
-  props: { params: { number: string, piece: string } }
+  props: { params: Promise<{ number: string, piece: string }> }
 ) {
   const { params } = props;
   const number = (await params).number

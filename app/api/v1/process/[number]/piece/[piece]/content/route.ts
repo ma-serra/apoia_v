@@ -54,6 +54,8 @@ async function GET_HANDLER(
   const user = await pUser
 
   const dadosDoProcesso = await obterDadosDoProcesso({ numeroDoProcesso: params.number, pUser, idDaPeca: params.piece })
+  if (dadosDoProcesso?.errorMsg)
+    throw new Error(dadosDoProcesso.errorMsg)
   if (!dadosDoProcesso.pecas[0].conteudo && dadosDoProcesso.pecas[0].pConteudo) {
     const conteudo: PecaConteudoType = await dadosDoProcesso.pecas[0].pConteudo
     if (conteudo.errorMsg) throw new Error(conteudo.errorMsg)

@@ -16,7 +16,7 @@ const Signin = async ({ searchParams }) => {
     const providers = authOptions.providers
 
     // Query param handling: systems
-    const qp = searchParams?.systems
+    const qp = (await searchParams)?.systems
     let enabledSystems = []
     if (qp === 'all') {
         enabledSystems = systems.map(o => o.system)
